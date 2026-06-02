@@ -259,7 +259,7 @@
       const search = document.getElementById("client-search").value.toLowerCase();
       const clients = STATE.clients;
       list.innerHTML = clients.filter(c => c.name.toLowerCase().includes(search) || c.phone.includes(search))
-        .map(c => `<div class="card"><h4>${c.name}</h4><p>📱 ${c.phone}</p><button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; margin-top:4px;" onclick="window.open('https://wa.me/${c.phone}','_blank')">💬 WhatsApp</button></div>`).join("");
+        .map(c => `<div class="card"><h4>${c.name}</h4><p>📱 ${c.phone}</p><button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; margin-top:4px;" onclick="window.open('https://wa.me/'+waNumber('${c.phone}'),'_blank')">💬 WhatsApp</button></div>`).join("");
     }
 
     async function approveQuote(id) {
@@ -278,13 +278,17 @@
     }
 
     function updateFab() { document.getElementById("fab-whatsapp").href = `https://wa.me/${COMPANY.whatsapp}`; }
+    // Garante o código do país (55) p/ o link wa.me funcionar. Telefone é salvo só com dígitos (sem 55).
+    function waNumber(p) { let d = String(p || "").replace(/\D/g, ""); if (d.length === 10 || d.length === 11) d = "55" + d; return d; }
     function sendWhatsAppQuote(id) {
       const q = STATE.quotes.find(x => x.id === id); if (!q) return;
-      window.open(`https://wa.me/${q.client.phone}?text=${encodeURIComponent(`Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`)}`, "_blank");
+      const tel = waNumber(q.client.phone); if (!tel) { alert("Cliente sem telefone válido cadastrado."); return; }
+      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(`Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`)}`, "_blank");
     }
     function sendWhatsAppOrder(id) {
       const o = STATE.orders.find(x => x.id === id); if (!o) return;
-      window.open(`https://wa.me/${o.client.phone}?text=${encodeURIComponent(`Olá ${o.client.name}! Seu pedido ${o.number} está: ${o.status.replace("_"," ")}. ${o.status==="PRONTO_RETIRADA"?"Já pode retirar!":"Avisaremos quando pronto."} 💡`)}`, "_blank");
+      const tel = waNumber(o.client.phone); if (!tel) { alert("Cliente sem telefone válido cadastrado."); return; }
+      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(`Olá ${o.client.name}! Seu pedido ${o.number} está: ${o.status.replace("_"," ")}. ${o.status==="PRONTO_RETIRADA"?"Já pode retirar!":"Avisaremos quando pronto."} 💡`)}`, "_blank");
     }
 
     async function preencherIA(btn) {

@@ -3,6 +3,19 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Senha de acesso (Basic Auth). Só ativa se APP_PASSWORD estiver no env. Qualquer usuário, senha = APP_PASSWORD.
+const APP_PASSWORD = process.env.APP_PASSWORD;
+if (APP_PASSWORD) {
+  app.use((req, res, next) => {
+    const h = req.headers.authorization || '';
+    const b64 = h.startsWith('Basic ') ? h.slice(6) : '';
+    const pass = b64 ? Buffer.from(b64, 'base64').toString().split(':').slice(1).join(':') : '';
+    if (pass === APP_PASSWORD) return next();
+    res.set('WWW-Authenticate', 'Basic realm="Casa RP Resistências", charset="UTF-8"');
+    return res.status(401).send('Acesso restrito — Casa RP Resistências.');
+  });
+}
+
 app.use(express.json({ limit: '8mb' }));
 app.use(express.static(__dirname, { extensions: ['html'] }));
 

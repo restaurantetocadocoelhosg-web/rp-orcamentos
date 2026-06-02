@@ -1,4 +1,4 @@
-const CACHE = 'rp-orcamentos-v4';
+const CACHE = 'rp-orcamentos-v5';
 const ASSETS = [
   'index.html',
   'manifest.json',
@@ -17,8 +17,7 @@ self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).then(resp => {
-      const copy = resp.clone();
-      caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+      if (resp.ok) { const copy = resp.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {}); }
       return resp;
     }).catch(() => caches.match('index.html')))
   );
