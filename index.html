@@ -278,25 +278,78 @@
     }
 
     function generatePDF(q) {
-      const { jsPDF } = window.jspdf; const doc = new jsPDF({ unit: "mm", format: "a4" });
-      doc.setFontSize(11).setFont("helvetica", "bold").text(COMPANY.name, 105, 15, { align: "center" });
-      doc.setFontSize(8).setFont("helvetica", "normal");
-      doc.text(`CNPJ: ${COMPANY.cnpj} | IE: ${COMPANY.ie}`, 105, 20, { align: "center" });
-      doc.text(`END: ${COMPANY.address}`, 105, 24, { align: "center" });
-      doc.text(`TEL: ${COMPANY.phone} | WHATS: ${COMPANY.whatsapp}`, 105, 28, { align: "center" });
-      doc.setFontSize(10).setFont("helvetica", "bold").text(`ORÇAMENTO ${q.number}`, 190, 15, { align: "right" });
-      doc.setFontSize(8).text(`DATA: ${new Date().toLocaleDateString('pt-BR')} | PROPOSTA VÁLIDA POR 15 DIAS`, 190, 20, { align: "right" });
-      doc.setFontSize(9).setFont("helvetica", "bold").text("CLIENTE:", 15, 38);
-      doc.setFont("helvetica", "normal").text(`${q.client.name} | ${q.client.phone}`, 15, 43);
-      let y = 52; doc.setFontSize(8).setFont("helvetica", "bold");
-      doc.text("Qtd.", 15, y); doc.text("Produto", 30, y); doc.text("R$un", 140, y, { align: "right" }); doc.text("Total", 170, y, { align: "right" });
-      doc.setLineWidth(0.2).line(15, y + 2, 195, y + 2); y += 6;
-      doc.setFont("helvetica", "normal");
-      q.items.forEach(i => { doc.text(String(i.qty), 15, y); doc.text(i.desc, 30, y, { maxWidth: 105 }); doc.text(`R$${i.price.toFixed(2)}`, 140, y, { align: "right" }); doc.text(`R$${i.total.toFixed(2)}`, 170, y, { align: "right" }); y += 6; });
-      doc.line(15, y + 2, 195, y + 2); doc.setFont("helvetica", "bold").text(`TOTAL: R$${q.total.toFixed(2)}`, 170, y + 8, { align: "right" }); y += 16;
-      doc.setFontSize(7).setFont("helvetica", "normal");
-      ["EM CASO DE FABRICAÇÃO","PRAZO DE FABRICAÇÃO: 12 A 20 DIAS ÚTEIS","PODENDO TER ALTERAÇÃO NO PREÇO CONFORME AMOSTRA FÍSICA OU DESENHO DETALHADO","SINAL DE FABRICAÇÃO: 30% DO VALOR TOTAL",`CÓDIGO NCM: ${COMPANY.ncm}`,"ALÍQUOTA DE IPI: SEM INFORMAÇÃO | ALÍQUOTA DE ICMS: OPERAÇÃO 500","CONDIÇÃO DE ENTREGA: (FRETE) RETIRADA NA LOJA","O PRODUTO É 100% NOVO? SIM, FABRICADO",`FATURAMENTO MÍNIMO PARA EMISSÃO DE NF: R$ ${COMPANY.minNF.toFixed(2)}`,`FABRICANTE: ${COMPANY.name}`,"CONFORME SOLICITAÇÃO, MATERIAL TERÁ QUE SER FABRICADO COM PRAZO MÍNIMO DE 12 Á 20 DIAS ÚTEIS"].forEach(t => { doc.text(t, 15, y); y += 4; });
-      if (q.photo) try { doc.addImage(q.photo, "JPEG", 15, y + 5, 40, 30); } catch(e) {}
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const W = 210, M = 12, R = W - M, navy = [27, 58, 107];
+      // ---- LOGO (badge CASA RP em vetor) ----
+      const lx = M + 12, ly = 20;
+      doc.setDrawColor(...navy); doc.setLineWidth(1.1); doc.circle(lx, ly, 11, "S");
+      doc.setLineWidth(0.4); doc.circle(lx, ly, 8.6, "S");
+      doc.setTextColor(...navy);
+      doc.setFont("helvetica", "bold").setFontSize(7).text("CASA", lx, ly - 1.5, { align: "center" });
+      doc.setFontSize(11).text("RP", lx, ly + 3.5, { align: "center" });
+      doc.setFontSize(4).text("RESISTÊNCIAS", lx, ly + 7, { align: "center" });
+      // ---- Cabeçalho ----
+      const hx = lx + 16;
+      doc.setFont("helvetica", "bolditalic").setFontSize(11).setTextColor(40, 40, 40).text("A Casa da Resistência Elétrica para Calor", hx, ly - 6);
+      doc.setFont("helvetica", "bold").setFontSize(13).setTextColor(...navy).text("RESISTÊNCIAS ELÉTRICAS", hx, ly);
+      doc.setFont("helvetica", "normal").setFontSize(6.3).setTextColor(70, 70, 70);
+      doc.text("Especializada em resistências elétricas, fios e cabos especiais para calor —", hx, ly + 4.5);
+      doc.text("uso doméstico, comercial, industrial, naval e hospitalar.", hx, ly + 7.5);
+      let y = 38;
+      doc.setDrawColor(...navy).setLineWidth(0.5).line(M, y - 4, R, y - 4);
+      doc.setFont("helvetica", "bold").setFontSize(12).setTextColor(...navy).text(`ORÇAMENTO ${q.number}`, M, y);
+      doc.setFontSize(8.5).text(`${new Date(q.date || Date.now()).toLocaleDateString("pt-BR")}  -  PROPOSTA VÁLIDA POR 15 DIAS`, R, y, { align: "right" });
+      y += 4;
+      // ---- Caixas dados empresa ----
+      const box = (t) => { doc.setDrawColor(170, 170, 170).setLineWidth(0.3).rect(M, y, R - M, 7); doc.setFont("helvetica", "bold").setFontSize(8.3).setTextColor(30, 30, 30).text(t, M + 2, y + 4.6); y += 7.6; };
+      box(`${COMPANY.razao}      CNPJ: ${COMPANY.cnpj}   -   IE: ${COMPANY.ie}`);
+      box(`END: ${COMPANY.address}`);
+      box(`TEL: ${COMPANY.phone}      WHATS: (21) 96598-7979`);
+      y += 3;
+      doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(...navy).text("CLIENTE:", M, y);
+      doc.setFont("helvetica", "normal").setTextColor(30, 30, 30).text(`${q.client.name}   -   ${q.client.phone}`, M + 20, y);
+      y += 5;
+      // ---- Tabela de itens ----
+      const cProd = M + 14, cUn = R - 54, prodW = cUn - cProd - 3;
+      doc.setFillColor(...navy).rect(M, y, R - M, 7, "F");
+      doc.setFont("helvetica", "bold").setFontSize(8.5).setTextColor(255, 255, 255);
+      doc.text("Qtd.", M + 2, y + 4.6);
+      doc.text("Produto", cProd + 2, y + 4.6);
+      doc.text("R$ un", cUn + 22, y + 4.6, { align: "right" });
+      doc.text("Total", R - 2, y + 4.6, { align: "right" });
+      y += 7;
+      (q.items || []).forEach(it => {
+        const lines = doc.setFont("helvetica", "normal").setFontSize(8).splitTextToSize(it.desc, prodW);
+        const rowH = Math.max(8, lines.length * 3.7 + 3.5);
+        doc.setDrawColor(205, 205, 205).setLineWidth(0.2).rect(M, y, R - M, rowH);
+        doc.setTextColor(30, 30, 30);
+        doc.setFont("helvetica", "bold").setFontSize(8.5).text(String(it.qty), M + 2, y + 5);
+        doc.setFont("helvetica", "normal").setFontSize(8).text(lines, cProd + 2, y + 4.5);
+        doc.text(`R$ ${it.price.toFixed(2)}`, cUn + 22, y + 5, { align: "right" });
+        doc.setFont("helvetica", "bold").text(`R$ ${it.total.toFixed(2)}`, R - 2, y + 5, { align: "right" });
+        y += rowH;
+      });
+      doc.setFillColor(232, 232, 232).rect(M, y, R - M, 8, "F").setDrawColor(205, 205, 205).rect(M, y, R - M, 8);
+      doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(30, 30, 30).text("TOTAL", cUn - 4, y + 5.4);
+      doc.text(`R$ ${q.total.toFixed(2)}`, R - 2, y + 5.4, { align: "right" });
+      y += 13;
+      doc.setFont("helvetica", "bold").setFontSize(8.5).setTextColor(...navy);
+      doc.text("CONFORME SOLICITAÇÃO, O MATERIAL SERÁ FABRICADO COM PRAZO MÍNIMO DE 12 A 20 DIAS ÚTEIS", W / 2, y, { align: "center" });
+      y += 7;
+      doc.setTextColor(30, 30, 30);
+      const c1 = [`FATURAMENTO MÍNIMO PARA EMISSÃO DE NF: R$ ${COMPANY.minNF.toFixed(2)}`, `CÓDIGO NCM: ${COMPANY.ncm}`, "FABRICANTE: CASA RP RESISTÊNCIAS", "O PRODUTO É 100% NOVO? SIM, FABRICADO", "ALÍQUOTA DE IPI: SEM INFORMAÇÃO   -   ALÍQUOTA DE ICMS: OPERAÇÃO 500", "CONDIÇÃO DE ENTREGA: (FRETE) RETIRADA NA LOJA"];
+      let h1 = c1.length * 4 + 3; doc.setDrawColor(170, 170, 170).rect(M, y, R - M, h1);
+      doc.setFont("helvetica", "normal").setFontSize(7.5); let yy = y + 4; c1.forEach(t => { doc.text("-  " + t, M + 2, yy); yy += 4; });
+      y += h1 + 5;
+      doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(...navy).text("EM CASO DE FABRICAÇÃO", W / 2, y, { align: "center" }); y += 3.5;
+      const c2 = ["PRAZO DE FABRICAÇÃO: 12 A 20 DIAS ÚTEIS", "SINAL DE FABRICAÇÃO: 30% DO VALOR TOTAL", "CONFORME AMOSTRA FÍSICA OU DESENHO DETALHADO", "PODENDO TER ALTERAÇÃO NO PREÇO"];
+      let h2 = c2.length * 4 + 3; doc.setTextColor(30, 30, 30).setDrawColor(170, 170, 170).rect(M, y, R - M, h2);
+      doc.setFont("helvetica", "normal").setFontSize(7.5); yy = y + 4; c2.forEach(t => { doc.text("-  " + t, M + 2, yy); yy += 4; });
+      y += h2 + 6;
+      doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(...navy).text("PAGAMENTO: Visa - Master - Amex - Diners - Elo - Boleto - Pix - em até 6x sem juros", W / 2, y, { align: "center" });
+      if (q.photo) { try { doc.addImage(q.photo, "JPEG", M, y + 4, 38, 28); } catch (e) {} }
+      doc.setFont("helvetica", "normal").setFontSize(6.8).setTextColor(95, 95, 95).text(`${COMPANY.razao} - CNPJ ${COMPANY.cnpj} - ${COMPANY.address}`, W / 2, 291, { align: "center" });
       doc.save(`${q.number}.pdf`);
     }
 
