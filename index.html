@@ -233,10 +233,11 @@
       const list = document.getElementById("quotes-list");
       const quotes = STATE.quotes;
       list.innerHTML = quotes.length ? quotes.map(q => `
-        <div class="card"><h4>${q.number} - ${q.client.name}</h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
+        <div class="card"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>
-          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Enviar</button>
+          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="enviarOrcamento('${q.id}')">📤 Enviar PDF</button>
+          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Avisar</button>
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum orçamento ainda. Toque em "+ Novo Orçamento".</p>';
     }
 
@@ -244,7 +245,7 @@
       const list = document.getElementById("orders-list");
       const orders = STATE.orders;
       list.innerHTML = orders.length ? orders.map(o => `
-        <div class="card"><h4>${o.number} - ${o.client.name}</h4><p>📦 Status: <span class="status ${o.status.toLowerCase()}">${o.status.replace("_", " ")}</span></p>
+        <div class="card"><h4>${o.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${o.number}</span></h4><p>📦 Status: <span class="status ${o.status.toLowerCase()}">${o.status.replace("_", " ")}</span></p>
         <p>💰 Sinal: R$ ${(o.total * 0.3).toFixed(2)} | Total: R$ ${o.total.toFixed(2)}</p>
         <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_FABRICACAO')">🔧 Fabricação</button>
@@ -320,13 +321,13 @@
         const venc = dias >= 15, aten = dias >= 7;
         const cor = venc ? "var(--danger)" : aten ? "#B8860B" : "var(--success)";
         const tag = venc ? "⚠️ vencido" : aten ? "⏰ cobrar" : "novo";
-        return `<div class="card" style="border-left-color:${cor}"><h4>${q.number} - ${q.client.name}</h4>
+        return `<div class="card" style="border-left-color:${cor}"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4>
           <p>📅 ${dias} dia(s) · 💰 R$ ${q.total.toFixed(2)} · ${tag}</p>
           <button class="btn-success" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Cobrar no WhatsApp</button></div>`;
       }).join("");
     }
 
-    function generatePDF(q) {
+    function buildPDF(q) {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: "mm", format: "a4" });
       const W = 210, M = 12, R = W - M, navy = [27, 58, 107];
@@ -399,7 +400,34 @@
       doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(...navy).text("PAGAMENTO: Visa - Master - Amex - Diners - Elo - Boleto - Pix - em até 6x sem juros", W / 2, y, { align: "center" });
       if (q.photo) { try { doc.addImage(q.photo, "JPEG", M, y + 4, 38, 28); } catch (e) {} }
       doc.setFont("helvetica", "normal").setFontSize(6.8).setTextColor(95, 95, 95).text(`${COMPANY.razao} - CNPJ ${COMPANY.cnpj} - ${COMPANY.address}`, W / 2, 291, { align: "center" });
-      doc.save(`${q.number}.pdf`);
+      return doc;
+    }
+
+    // Nome do arquivo com o nome do cliente na frente, pra achar fácil depois.
+    function pdfFilename(q) {
+      const nm = String((q.client && q.client.name) || "").replace(/[\\/:*?"<>|]+/g, "").trim();
+      return (nm ? `${nm} - ${q.number}` : q.number) + ".pdf";
+    }
+    function generatePDF(q) { buildPDF(q).save(pdfFilename(q)); }
+
+    // Envia o orçamento (PDF) pro cliente. No celular abre a folha de compartilhar -> WhatsApp anexa o PDF.
+    async function enviarOrcamento(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      const tel = waNumber(q.client.phone);
+      const msg = `Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`;
+      const fname = pdfFilename(q);
+      const doc = buildPDF(q);
+      try {
+        const file = new File([doc.output("blob")], fname, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: `Orçamento ${q.number}`, text: msg });
+          return;
+        }
+      } catch (e) { if (e && e.name === "AbortError") return; }
+      // Fallback (navegador sem compartilhar arquivo): baixa o PDF e abre o WhatsApp com o texto.
+      doc.save(fname);
+      if (tel) window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg + "\n\n(PDF baixado neste aparelho — anexe na conversa.)")}`, "_blank");
+      else alert("PDF baixado. Cadastre um telefone válido do cliente para abrir o WhatsApp.");
     }
 
     // PWA: service worker para funcionar offline e instalar na tela inicial
