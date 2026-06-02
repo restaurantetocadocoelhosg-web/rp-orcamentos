@@ -128,6 +128,28 @@
       email: "casarpresistenciaseletrica@hotmail.com", ncm: "85168010", minNF: 1000.00
     };
 
+    // ===== Backend Supabase (sincroniza entre aparelhos) + cache offline =====
+    const SUPA_URL = "https://zuwdgyvbuaocbzckhhlm.supabase.co";
+    const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2RneXZidWFvY2J6Y2toaGxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2ODk0MTUsImV4cCI6MjA5MjI2NTQxNX0._v0lytkvd854urjD0l45rX9vrzSUh0Ro2VuGINsLwmM";
+    const SB_H = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json" };
+    let STATE = { quotes: [], orders: [], clients: [] };
+    async function sbSelect(table, q) { try { const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${q || ""}`, { headers: SB_H }); return r.ok ? await r.json() : []; } catch (e) { return null; } }
+    async function sbInsert(table, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}`, { method: "POST", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
+    async function sbPatch(table, col, val, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "PATCH", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
+    async function sbUpsert(table, obj, onConflict) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", headers: { ...SB_H, "Prefer": "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
+    function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
+    function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
+    async function loadAll() {
+      const [q, o, c] = await Promise.all([
+        sbSelect("rp_quotes", "select=*&order=created_at.desc"),
+        sbSelect("rp_orders", "select=*&order=created_at.desc"),
+        sbSelect("rp_clients", "select=*&order=created_at.desc")
+      ]);
+      if (q === null || o === null || c === null) { cacheLoad(); }
+      else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; cacheSave(); }
+      renderQuotes(); renderOrders(); renderClients();
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         document.getElementById("splash").style.opacity = "0";
@@ -136,7 +158,7 @@
           document.getElementById("app").classList.remove("hidden");
         }, 500);
       }, 2000);
-      initTabs(); renderQuotes(); renderOrders(); renderClients(); updateFab();
+      initTabs(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); updateFab(); loadAll();
     });
 
     function initTabs() {
@@ -151,9 +173,9 @@
     }
 
     function getNextQuoteNumber() {
-      let counter = parseInt(localStorage.getItem("rp_quote_counter") || "0");
-      counter++; localStorage.setItem("rp_quote_counter", counter);
-      return `ORC-${new Date().getFullYear()}-${String(counter).padStart(4, "0")}`;
+      const year = new Date().getFullYear();
+      const n = STATE.quotes.filter(q => (q.number || "").startsWith(`ORC-${year}`)).length + 1;
+      return `ORC-${year}-${String(n).padStart(4, "0")}`;
     }
 
     function openQuoteModal() { document.getElementById("quote-modal").classList.remove("hidden"); }
@@ -187,29 +209,31 @@
 
       const total = items.reduce((acc, i) => acc + i.total, 0);
       const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString() };
-      saveQuote(quote); saveClient(quote.client); generatePDF(quote); closeQuoteModal(); renderQuotes();
+      STATE.quotes.unshift(quote);
+      await saveQuote(quote); await saveClient(quote.client); cacheSave();
+      generatePDF(quote); closeQuoteModal(); renderQuotes();
       alert(`✅ Orçamento ${number} gerado com sucesso!`);
     });
 
     function readFileAsBase64(file) { return new Promise(r => { const f = new FileReader(); f.onloadend = () => r(f.result); f.readAsDataURL(file); }); }
-    function saveQuote(q) { const qs = JSON.parse(localStorage.getItem("rp_quotes") || "[]"); qs.unshift(q); localStorage.setItem("rp_quotes", JSON.stringify(qs)); }
-    function saveClient(c) { const cs = JSON.parse(localStorage.getItem("rp_clients") || "[]"); if (!cs.find(x => x.phone === c.phone)) { cs.push({ ...c, id: crypto.randomUUID(), createdAt: new Date().toISOString() }); localStorage.setItem("rp_clients", JSON.stringify(cs)); } }
+    async function saveQuote(q) { await sbInsert("rp_quotes", { id: q.id, number: q.number, data: q }); }
+    async function saveClient(c) { if (!STATE.clients.find(x => x.phone === c.phone)) { const row = { id: crypto.randomUUID(), name: c.name, phone: c.phone }; STATE.clients.unshift(row); await sbUpsert("rp_clients", row, "phone"); } }
 
     function renderQuotes() {
       const list = document.getElementById("quotes-list");
-      const quotes = JSON.parse(localStorage.getItem("rp_quotes") || "[]");
-      list.innerHTML = quotes.map(q => `
+      const quotes = STATE.quotes;
+      list.innerHTML = quotes.length ? quotes.map(q => `
         <div class="card"><h4>${q.number} - ${q.client.name}</h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Enviar</button>
-        </div></div>`).join("");
+        </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum orçamento ainda. Toque em "+ Novo Orçamento".</p>';
     }
 
     function renderOrders() {
       const list = document.getElementById("orders-list");
-      const orders = JSON.parse(localStorage.getItem("rp_orders") || "[]");
-      list.innerHTML = orders.map(o => `
+      const orders = STATE.orders;
+      list.innerHTML = orders.length ? orders.map(o => `
         <div class="card"><h4>${o.number} - ${o.client.name}</h4><p>📦 Status: <span class="status ${o.status.toLowerCase()}">${o.status.replace("_", " ")}</span></p>
         <p>💰 Sinal: R$ ${(o.total * 0.3).toFixed(2)} | Total: R$ ${o.total.toFixed(2)}</p>
         <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
@@ -217,40 +241,39 @@
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_ESTOQUE')">📦 Estoque</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','PRONTO_RETIRADA')">✅ Pronto</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppOrder('${o.id}')">💬 Cobrar</button>
-        </div></div>`).join("");
+        </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum pedido ainda. Aprove um orçamento.</p>';
     }
 
     function renderClients() {
       const list = document.getElementById("clients-list");
       const search = document.getElementById("client-search").value.toLowerCase();
-      const clients = JSON.parse(localStorage.getItem("rp_clients") || "[]");
+      const clients = STATE.clients;
       list.innerHTML = clients.filter(c => c.name.toLowerCase().includes(search) || c.phone.includes(search))
         .map(c => `<div class="card"><h4>${c.name}</h4><p>📱 ${c.phone}</p><button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; margin-top:4px;" onclick="window.open('https://wa.me/${c.phone}','_blank')">💬 WhatsApp</button></div>`).join("");
     }
 
-    function approveQuote(id) {
-      const quotes = JSON.parse(localStorage.getItem("rp_quotes") || "[]");
-      const q = quotes.find(x => x.id === id); if (!q) return;
-      q.status = "APROVADO"; localStorage.setItem("rp_quotes", JSON.stringify(quotes));
-      const orders = JSON.parse(localStorage.getItem("rp_orders") || "[]");
-      const orderNum = `PED-${new Date().getFullYear()}-${String(orders.length + 1).padStart(4, "0")}`;
-      orders.push({ id: crypto.randomUUID(), number: orderNum, quoteId: q.id, client: q.client, items: q.items, total: q.total, status: "EM_FABRICACAO", createdAt: new Date().toISOString() });
-      localStorage.setItem("rp_orders", JSON.stringify(orders)); renderQuotes(); renderOrders();
+    async function approveQuote(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      q.status = "APROVADO"; await sbPatch("rp_quotes", "id", q.id, { data: q });
+      const orderNum = `PED-${new Date().getFullYear()}-${String(STATE.orders.length + 1).padStart(4, "0")}`;
+      const order = { id: crypto.randomUUID(), number: orderNum, quoteId: q.id, client: q.client, items: q.items, total: q.total, status: "EM_FABRICACAO", createdAt: new Date().toISOString() };
+      STATE.orders.unshift(order); await sbInsert("rp_orders", { id: order.id, number: order.number, data: order });
+      cacheSave(); renderQuotes(); renderOrders();
       alert(`✅ Orçamento aprovado! Pedido ${orderNum} criado.`);
     }
 
-    function updateOrderStatus(id, status) {
-      const orders = JSON.parse(localStorage.getItem("rp_orders") || "[]");
-      const o = orders.find(x => x.id === id); if (o) { o.status = status; localStorage.setItem("rp_orders", JSON.stringify(orders)); renderOrders(); }
+    async function updateOrderStatus(id, status) {
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
+      o.status = status; await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderOrders();
     }
 
     function updateFab() { document.getElementById("fab-whatsapp").href = `https://wa.me/${COMPANY.whatsapp}`; }
     function sendWhatsAppQuote(id) {
-      const q = JSON.parse(localStorage.getItem("rp_quotes") || "[]").find(x => x.id === id); if (!q) return;
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
       window.open(`https://wa.me/${q.client.phone}?text=${encodeURIComponent(`Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`)}`, "_blank");
     }
     function sendWhatsAppOrder(id) {
-      const o = JSON.parse(localStorage.getItem("rp_orders") || "[]").find(x => x.id === id); if (!o) return;
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
       window.open(`https://wa.me/${o.client.phone}?text=${encodeURIComponent(`Olá ${o.client.name}! Seu pedido ${o.number} está: ${o.status.replace("_"," ")}. ${o.status==="PRONTO_RETIRADA"?"Já pode retirar!":"Avisaremos quando pronto."} 💡`)}`, "_blank");
     }
 
