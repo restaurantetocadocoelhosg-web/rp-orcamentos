@@ -1,28 +1,87 @@
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Login (Basic Auth). Só ativa se APP_PASSWORD estiver no env. Usuário = APP_USER (se definido), senha = APP_PASSWORD.
+app.use(express.json({ limit: '8mb' }));
+
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const APP_USER = process.env.APP_USER || 'casarp';
 const APP_PASSWORD = process.env.APP_PASSWORD;
-const APP_USER = process.env.APP_USER;
-if (APP_PASSWORD) {
+// Token do cookie de sessão (derivado da senha). Só ativa login se APP_PASSWORD existir.
+const AUTH_TOKEN = APP_PASSWORD ? crypto.createHash('sha256').update('rpv1:' + APP_USER + ':' + APP_PASSWORD).digest('hex') : null;
+
+function getCookie(req, name) {
+  const c = req.headers.cookie || '';
+  const m = c.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+// Arquivos liberados SEM login — necessários p/ instalar o PWA e mostrar a tela de login.
+function isPublic(p) {
+  return p === '/manifest.json' || p === '/sw.js' || p === '/login' || p === '/api/login' || p === '/api/health' || p.startsWith('/icons/');
+}
+
+const LOGIN_HTML = `<!doctype html><html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Entrar — Casa RP Resistências</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1B3A6B">
+<style>
+*{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#FDF6E3;padding:24px}
+.card{width:100%;max-width:360px;background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:28px 24px;text-align:center}
+.logo{width:84px;height:84px;border-radius:50%;background:#1B3A6B;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;line-height:1.1;margin:0 auto 14px;padding:8px;text-align:center}
+h1{font-size:1.1rem;color:#1B3A6B;margin-bottom:4px}
+p.sub{font-size:.8rem;color:#777;margin-bottom:18px}
+input{width:100%;padding:13px 14px;margin-bottom:12px;border:1px solid #ddd;border-radius:10px;font-size:1rem}
+input:focus{outline:none;border-color:#1B3A6B}
+button{width:100%;padding:13px;border:0;border-radius:10px;background:#1B3A6B;color:#fff;font-size:1rem;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6}
+.err{color:#c0392b;font-size:.85rem;min-height:18px;margin-bottom:8px}
+</style></head><body>
+<form class="card" id="f">
+  <div class="logo">CASA RP<br>RESISTÊNCIAS</div>
+  <h1>Orçamentos Casa RP</h1>
+  <p class="sub">Entre para continuar</p>
+  <div class="err" id="err"></div>
+  <input id="u" name="user" placeholder="Usuário" autocapitalize="none" autocomplete="username" required>
+  <input id="p" name="pass" type="password" placeholder="Senha" autocomplete="current-password" required>
+  <button id="b" type="submit">Entrar</button>
+</form>
+<script>
+const f=document.getElementById('f'),err=document.getElementById('err'),b=document.getElementById('b');
+f.addEventListener('submit',async e=>{e.preventDefault();err.textContent='';b.disabled=true;b.textContent='Entrando...';
+ try{const r=await fetch('api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.getElementById('u').value,pass:document.getElementById('p').value})});
+  const d=await r.json();
+  if(r.ok&&d.ok){location.replace('./');}else{err.textContent=d.error||'Usuário ou senha incorretos.';b.disabled=false;b.textContent='Entrar';}
+ }catch(_){err.textContent='Erro de conexão. Tente de novo.';b.disabled=false;b.textContent='Entrar';}
+});
+</script></body></html>`;
+
+// Gate de login (só se APP_PASSWORD definido). Libera assets do PWA + tela/endpoint de login.
+if (AUTH_TOKEN) {
   app.use((req, res, next) => {
-    const h = req.headers.authorization || '';
-    const decoded = h.startsWith('Basic ') ? Buffer.from(h.slice(6), 'base64').toString() : '';
-    const idx = decoded.indexOf(':');
-    const user = idx >= 0 ? decoded.slice(0, idx) : '';
-    const pass = idx >= 0 ? decoded.slice(idx + 1) : '';
-    if (pass === APP_PASSWORD && (!APP_USER || user === APP_USER)) return next();
-    res.set('WWW-Authenticate', 'Basic realm="Casa RP Resistências", charset="UTF-8"');
-    return res.status(401).send('Acesso restrito — Casa RP Resistências.');
+    if (isPublic(req.path)) return next();
+    if (getCookie(req, 'rp_auth') === AUTH_TOKEN) return next();
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sessão expirada. Faça login de novo.' });
+    return res.redirect('/login');
   });
 }
 
-app.use(express.json({ limit: '8mb' }));
-app.use(express.static(__dirname, { extensions: ['html'] }));
+app.get('/login', (req, res) => res.type('html').send(LOGIN_HTML));
+app.post('/api/login', (req, res) => {
+  if (!AUTH_TOKEN) return res.json({ ok: true });
+  const u = String((req.body && req.body.user) || '');
+  const p = String((req.body && req.body.pass) || '');
+  if (u === APP_USER && p === APP_PASSWORD) {
+    res.set('Set-Cookie', `rp_auth=${AUTH_TOKEN}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`);
+    return res.json({ ok: true });
+  }
+  return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+});
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+app.use(express.static(__dirname, { extensions: ['html'] }));
 
 const SYS_IA = `Você é o assistente da CASA RP RESISTÊNCIAS ELÉTRICAS (Niterói/RJ), fábrica de resistências elétricas e materiais elétricos para calor (uso doméstico, comercial, industrial, naval e hospitalar).
 A partir do texto do lojista, monte os ITENS de um orçamento com descrição TÉCNICA padronizada (estilo ficha técnica) e identifique o CLIENTE (se citado).
@@ -58,6 +117,6 @@ app.post('/api/ia', async (req, res) => {
   } catch (e) { res.status(503).json({ error: 'Falha ao contatar a IA: ' + e.message }); }
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY }));
+app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY, login: !!AUTH_TOKEN }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.listen(PORT, () => console.log('RP Orçamentos rodando na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY)));
+app.listen(PORT, () => console.log('RP Orçamentos rodando na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY) + ' | Login: ' + (!!AUTH_TOKEN)));
