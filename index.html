@@ -79,6 +79,7 @@
       <button class="tab active" data-target="orcamentos">Orçamentos</button>
       <button class="tab" data-target="pedidos">Pedidos</button>
       <button class="tab" data-target="clientes">Clientes</button>
+      <button class="tab" data-target="cobrancas">Cobranças</button>
     </nav>
     <main class="content">
       <section id="orcamentos" class="panel active">
@@ -92,6 +93,10 @@
         <input type="text" id="client-search" placeholder="🔍 Buscar cliente..." oninput="renderClients()">
         <div id="clients-list" class="list"></div>
       </section>
+      <section id="cobrancas" class="panel">
+        <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Orçamentos ainda não aprovados — cobre pelo WhatsApp. ⏰ a partir de 7 dias · ⚠️ vencidos (15 dias).</div>
+        <div id="cobr-list" class="list"></div>
+      </section>
     </main>
     <a id="fab-whatsapp" class="fab" href="#" target="_blank">💬</a>
   </div>
@@ -100,6 +105,11 @@
     <div class="modal-content">
       <h3>Novo Orçamento</h3>
       <form id="quote-form">
+        <div style="background:#FFF8E7; border:1px dashed var(--border); border-radius:10px; padding:10px; margin-bottom:12px;">
+          <div style="font-size:0.82rem; font-weight:600; color:var(--primary); margin-bottom:6px;">🤖 Preencher com IA</div>
+          <textarea id="ia-input" rows="3" placeholder="Descreva o pedido. Ex: Cliente Jurandir 21 96598-7979 — 5 resistências de imersão tubo cobre 8mm formato U 400mm 2000W 220V; 2 termostatos bulbo 20-120°C" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;"></textarea>
+          <button type="button" class="btn-secondary" style="margin-bottom:0;" onclick="preencherIA(this)">✨ Gerar itens com IA</button>
+        </div>
         <input type="text" id="q-client-name" placeholder="Nome do Cliente" required>
         <input type="tel" id="q-client-phone" placeholder="WhatsApp (ex: 21999999999)" required>
         <input type="file" id="q-photo" accept="image/*">
@@ -147,7 +157,7 @@
       ]);
       if (q === null || o === null || c === null) { cacheLoad(); }
       else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; cacheSave(); }
-      renderQuotes(); renderOrders(); renderClients();
+      renderQuotes(); renderOrders(); renderClients(); renderCobrancas();
     }
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -158,7 +168,7 @@
           document.getElementById("app").classList.remove("hidden");
         }, 500);
       }, 2000);
-      initTabs(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); updateFab(); loadAll();
+      initTabs(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); updateFab(); loadAll();
     });
 
     function initTabs() {
@@ -275,6 +285,41 @@
     function sendWhatsAppOrder(id) {
       const o = STATE.orders.find(x => x.id === id); if (!o) return;
       window.open(`https://wa.me/${o.client.phone}?text=${encodeURIComponent(`Olá ${o.client.name}! Seu pedido ${o.number} está: ${o.status.replace("_"," ")}. ${o.status==="PRONTO_RETIRADA"?"Já pode retirar!":"Avisaremos quando pronto."} 💡`)}`, "_blank");
+    }
+
+    async function preencherIA(btn) {
+      const texto = document.getElementById("ia-input").value.trim();
+      if (!texto) { alert("Descreva o pedido para a IA."); return; }
+      const old = btn.textContent; btn.disabled = true; btn.textContent = "✨ Gerando...";
+      try {
+        const r = await fetch("/api/ia", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto }) });
+        const d = await r.json();
+        if (!r.ok) { alert(d.error || "IA indisponível nesta versão."); }
+        else {
+          if (d.cliente) { if (d.cliente.nome) document.getElementById("q-client-name").value = d.cliente.nome; if (d.cliente.telefone) document.getElementById("q-client-phone").value = d.cliente.telefone; }
+          const cont = document.getElementById("q-items");
+          if (d.itens && d.itens.length) {
+            cont.innerHTML = "";
+            d.itens.forEach(it => { const row = document.createElement("div"); row.className = "item-row"; row.innerHTML = `<input type="text" class="i-desc" value="${String(it.desc || "").replace(/"/g, "&quot;")}" required><input type="number" class="i-qty" min="1" value="${it.qty || 1}" required><input type="number" class="i-price" step="0.01" value="${it.price || ""}" placeholder="R$ Un" required>`; cont.appendChild(row); });
+          } else { alert("A IA não encontrou itens. Tente detalhar mais."); }
+        }
+      } catch (e) { alert("IA indisponível nesta versão (hospede no Railway para usar a IA)."); }
+      btn.disabled = false; btn.textContent = old;
+    }
+
+    function renderCobrancas() {
+      const list = document.getElementById("cobr-list");
+      const pend = STATE.quotes.filter(q => q.status !== "APROVADO").slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (!pend.length) { list.innerHTML = '<p style="text-align:center; color:var(--secondary); padding:20px;">Nenhum orçamento pendente. 🎉</p>'; return; }
+      list.innerHTML = pend.map(q => {
+        const dias = Math.floor((Date.now() - new Date(q.date).getTime()) / 86400000);
+        const venc = dias >= 15, aten = dias >= 7;
+        const cor = venc ? "var(--danger)" : aten ? "#B8860B" : "var(--success)";
+        const tag = venc ? "⚠️ vencido" : aten ? "⏰ cobrar" : "novo";
+        return `<div class="card" style="border-left-color:${cor}"><h4>${q.number} - ${q.client.name}</h4>
+          <p>📅 ${dias} dia(s) · 💰 R$ ${q.total.toFixed(2)} · ${tag}</p>
+          <button class="btn-success" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Cobrar no WhatsApp</button></div>`;
+      }).join("");
     }
 
     function generatePDF(q) {
