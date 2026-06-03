@@ -94,6 +94,7 @@
       </section>
       <section id="pedidos" class="panel">
         <input type="text" id="order-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderOrders()">
+        <button class="btn-danger" onclick="limparPedidosProntos()" style="margin-bottom:8px;">🧹 Limpar pedidos prontos</button>
         <div id="orders-list" class="list"></div>
       </section>
       <section id="clientes" class="panel">
@@ -102,6 +103,7 @@
       </section>
       <section id="cobrancas" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Orçamentos ainda não aprovados — cobre pelo WhatsApp. ⏰ a partir de 7 dias · ⚠️ vencidos (15 dias).</div>
+        <button class="btn-primary" onclick="relatorioCobrancas()" style="margin-bottom:10px;">📩 Me enviar a lista no WhatsApp</button>
         <div id="cobr-list" class="list"></div>
       </section>
       <section id="adm" class="panel">
@@ -426,6 +428,7 @@
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_ESTOQUE')">📦 Estoque</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','PRONTO_RETIRADA')">✅ Pronto</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppOrder('${o.id}')">💬 Cobrar</button>
+          <button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirPedido('${o.id}')">🗑️ Excluir</button>
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum pedido ainda. Aprove um orçamento.</p>';
     }
 
@@ -450,6 +453,20 @@
     async function updateOrderStatus(id, status) {
       const o = STATE.orders.find(x => x.id === id); if (!o) return;
       o.status = status; await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderOrders();
+    }
+    async function excluirPedido(id) {
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
+      if (!confirm(`Excluir o pedido ${o.number} de ${o.client.name || "cliente"}? Não dá pra desfazer.`)) return;
+      STATE.orders = STATE.orders.filter(x => x.id !== id);
+      await sbDelete("rp_orders", "id", id); cacheSave(); renderOrders();
+    }
+    async function limparPedidosProntos() {
+      const prontos = STATE.orders.filter(o => o.status === "PRONTO_RETIRADA");
+      if (!prontos.length) { alert("Nenhum pedido marcado como Pronto."); return; }
+      if (!confirm(`Excluir ${prontos.length} pedido(s) marcados como PRONTO? Não dá pra desfazer.`)) return;
+      for (const o of prontos) { await sbDelete("rp_orders", "id", o.id); }
+      STATE.orders = STATE.orders.filter(o => o.status !== "PRONTO_RETIRADA");
+      cacheSave(); renderOrders();
     }
 
     function updateFab() { document.getElementById("fab-whatsapp").href = `https://wa.me/${COMPANY.whatsapp}`; }
@@ -486,6 +503,17 @@
       btn.disabled = false; btn.textContent = old;
     }
 
+    function relatorioCobrancas() {
+      const pend = STATE.quotes.filter(q => q.status !== "APROVADO").slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (!pend.length) { alert("Nenhum orçamento pendente. 🎉"); return; }
+      let txt = "*Orçamentos pendentes — Casa RP* 📋\n\n";
+      pend.forEach(q => {
+        const dias = Math.floor((Date.now() - new Date(q.date).getTime()) / 86400000);
+        txt += `• ${q.client.name || "(sem nome)"} — ${q.client.phone || "sem telefone"} — ${q.number} — R$ ${q.total.toFixed(2)} — ${dias} dia(s)\n`;
+      });
+      txt += `\nTotal pendente: ${pend.length} orçamento(s).`;
+      window.open(`https://wa.me/${COMPANY.whatsapp}?text=${encodeURIComponent(txt)}`, "_blank");
+    }
     function renderCobrancas() {
       const list = document.getElementById("cobr-list");
       const pend = STATE.quotes.filter(q => q.status !== "APROVADO").slice().sort((a, b) => new Date(a.date) - new Date(b.date));

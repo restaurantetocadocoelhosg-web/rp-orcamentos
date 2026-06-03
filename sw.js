@@ -1,4 +1,4 @@
-const CACHE = 'rp-orcamentos-v9';
+const CACHE = 'rp-orcamentos-v10';
 const ASSETS = [
   'index.html',
   'manifest.json',
@@ -15,6 +15,9 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  // Nunca cachear API nem a tela de login (dados dinâmicos / sessão) — sempre rede.
+  if (url.pathname.startsWith('/api/') || url.pathname === '/login') return;
   e.respondWith(
     caches.match(e.request).then(cached => cached || fetch(e.request).then(resp => {
       if (resp.ok && !resp.redirected) { const copy = resp.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {}); }
