@@ -1,4 +1,4 @@
-const CACHE = 'rp-orcamentos-v12';
+const CACHE = 'rp-orcamentos-v13';
 const ASSETS = [
   'index.html',
   'manifest.json',

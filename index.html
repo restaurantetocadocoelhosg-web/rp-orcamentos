@@ -82,20 +82,20 @@
     <nav class="tabs">
       <button class="tab active" data-target="orcamentos">Orçamentos</button>
       <button class="tab" data-target="pedidos">Pedidos</button>
-      <button class="tab" data-target="clientes">Clientes</button>
+      <button class="tab" data-target="clientes" id="tab-clientes">Clientes</button>
       <button class="tab" data-target="cobrancas">Cobranças</button>
-      <button class="tab" data-target="comissoes">Comissões</button>
+      <button class="tab" data-target="comissoes" id="tab-comissoes">Comissões</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
       <section id="orcamentos" class="panel active">
-        <button class="btn-primary" onclick="openQuoteModal()">+ Novo Orçamento</button>
+        <button class="btn-primary" id="btn-novo-orcamento" onclick="openQuoteModal()">+ Novo Orçamento</button>
         <input type="text" id="quote-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderQuotes()" style="margin-top:10px;">
         <div id="quotes-list" class="list"></div>
       </section>
       <section id="pedidos" class="panel">
         <input type="text" id="order-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderOrders()">
-        <button class="btn-danger" onclick="limparPedidosProntos()" style="margin-bottom:8px;">🧹 Limpar pedidos prontos</button>
+        <button class="btn-danger" id="btn-limpar-prontos" onclick="limparPedidosProntos()" style="margin-bottom:8px;">🧹 Limpar pedidos prontos</button>
         <div id="orders-list" class="list"></div>
       </section>
       <section id="clientes" class="panel">
@@ -124,7 +124,7 @@
     <div class="modal-content">
       <h3>Novo Orçamento</h3>
       <form id="quote-form">
-        <div style="background:#FFF8E7; border:1px dashed var(--border); border-radius:10px; padding:10px; margin-bottom:12px;">
+        <div id="ia-box" style="background:#FFF8E7; border:1px dashed var(--border); border-radius:10px; padding:10px; margin-bottom:12px;">
           <div style="font-size:0.82rem; font-weight:600; color:var(--primary); margin-bottom:6px;">🤖 Preencher com IA</div>
           <textarea id="ia-input" rows="3" placeholder="Descreva o pedido. Ex: Cliente Jurandir 21 96598-7979 — 5 resistências de imersão tubo cobre 8mm formato U 400mm 2000W 220V; 2 termostatos bulbo 20-120°C" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;"></textarea>
           <button type="button" class="btn-secondary" style="margin-bottom:0;" onclick="preencherIA(this)">✨ Gerar itens com IA</button>
@@ -165,6 +165,9 @@
         </select>
         <label style="font-size:0.85rem; color:var(--secondary);">Comissão padrão: <b id="u-com-val">5</b>%</label>
         <input type="range" id="u-com" min="1" max="20" value="5" style="width:100%; margin-bottom:12px;" oninput="document.getElementById('u-com-val').textContent=this.value">
+        <label style="font-size:0.85rem; color:var(--secondary); display:block;">Permissões — o que esse usuário pode usar:</label>
+        <div id="u-perms" style="display:flex; flex-direction:column; gap:6px; margin:8px 0 4px; font-size:0.9rem;"></div>
+        <small style="color:var(--secondary); display:block; margin-bottom:10px;">Admin já tem todas as permissões automaticamente.</small>
         <div class="modal-actions">
           <button type="button" class="btn-danger" onclick="closeUserModal()">Cancelar</button>
           <button type="submit" class="btn-success">💾 Salvar</button>
@@ -200,11 +203,21 @@
           CURRENT_USER = d.user;
           document.getElementById("user-tag").textContent = `👤 ${d.user.name}${d.user.role === "admin" ? " (admin)" : ""}`;
           document.getElementById("tab-adm").style.display = d.user.role === "admin" ? "" : "none";
+          applyPerms();
           renderQuotes(); renderOrders(); renderCobrancas(); renderComissoes();
         }
       } catch (e) {}
     }
     async function logout() { try { await fetch("api/logout", { method: "POST" }); } catch (e) {} location.replace("login"); }
+
+    const PERM_LABELS = { criar_orcamento: "Criar orçamentos", editar: "Editar", excluir: "Excluir", aprovar: "Aprovar orçamentos", ver_comissoes: "Ver comissões", ver_clientes: "Ver clientes", usar_ia: "Usar IA (preencher)", ver_todos: "Ver de todos os vendedores" };
+    const DEFAULT_PERMS_FRONT = { criar_orcamento: true, editar: true, excluir: false, aprovar: true, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
+    function renderPermChecks(perms) {
+      perms = (perms && Object.keys(perms).length) ? perms : DEFAULT_PERMS_FRONT;
+      document.getElementById("u-perms").innerHTML = Object.keys(PERM_LABELS).map(k => `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" class="perm-chk" data-perm="${k}" ${perms[k] ? "checked" : ""}> ${PERM_LABELS[k]}</label>`).join("");
+    }
+    function gatherPerms() { const o = {}; document.querySelectorAll(".perm-chk").forEach(c => o[c.dataset.perm] = c.checked); return o; }
+    function permResumo(perms) { perms = perms || {}; const on = Object.keys(PERM_LABELS).filter(k => perms[k]).map(k => PERM_LABELS[k]); return on.length ? on.join(", ") : "sem permissões"; }
 
     async function renderAdmin() {
       const list = document.getElementById("users-list");
@@ -216,6 +229,7 @@
         <div class="card" style="${u.active ? "" : "opacity:0.55;"}">
           <h4>${u.name || u.username} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· @${u.username} · ${u.role === "admin" ? "👑 admin" : "vendedor"}</span></h4>
           <p>💸 Comissão padrão: ${u.commission_default}% ${u.active ? "" : "· ⛔ inativo"}</p>
+          ${u.role !== "admin" ? `<p style="font-size:0.76rem; color:var(--secondary);">🔑 ${permResumo(u.perms)}</p>` : ""}
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
             <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick='editUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>✏️ Editar</button>
             <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="toggleUser('${u.id}', ${u.active ? "false" : "true"})">${u.active ? "🚫 Desativar" : "✅ Ativar"}</button>
@@ -232,6 +246,7 @@
       document.getElementById("u-pass-hint").textContent = "";
       document.getElementById("u-role").value = "vendedor";
       document.getElementById("u-com").value = 5; document.getElementById("u-com-val").textContent = "5";
+      renderPermChecks(DEFAULT_PERMS_FRONT);
       document.getElementById("user-modal").classList.remove("hidden");
     }
     function editUser(u) {
@@ -243,6 +258,7 @@
       document.getElementById("u-pass-hint").textContent = "Em branco = mantém a senha atual.";
       document.getElementById("u-role").value = u.role === "admin" ? "admin" : "vendedor";
       document.getElementById("u-com").value = u.commission_default || 5; document.getElementById("u-com-val").textContent = String(u.commission_default || 5);
+      renderPermChecks(u.perms);
       document.getElementById("user-modal").classList.remove("hidden");
     }
     function setQuoteCommission(pct) { document.getElementById("q-com").value = pct; document.getElementById("q-com-val").textContent = String(pct); }
@@ -254,7 +270,8 @@
       const body = {
         name: document.getElementById("u-name").value.trim(),
         role: document.getElementById("u-role").value,
-        commission_default: parseInt(document.getElementById("u-com").value) || 5
+        commission_default: parseInt(document.getElementById("u-com").value) || 5,
+        perms: gatherPerms()
       };
       const pass = document.getElementById("u-pass").value;
       if (pass) body.pass = pass;
@@ -282,8 +299,17 @@
       return term.toLowerCase().split(/\s+/).filter(Boolean).every(t => hay.includes(t));
     }
     function isAdmin() { return CURRENT_USER && CURRENT_USER.role === "admin"; }
-    // vendedor vê só o que é dele; admin vê tudo; sem login carregado ainda = mostra (re-renderiza após loadMe).
-    function ownsRec(rec) { return !CURRENT_USER || isAdmin() || (rec.seller && rec.seller.u === CURRENT_USER.u); }
+    function can(p) { return !CURRENT_USER || isAdmin() || (CURRENT_USER.perms && CURRENT_USER.perms[p]); }
+    // vendedor vê só o que é dele; admin (ou quem tem ver_todos) vê tudo.
+    function ownsRec(rec) { return !CURRENT_USER || isAdmin() || can("ver_todos") || (rec.seller && rec.seller.u === CURRENT_USER.u); }
+    function applyPerms() {
+      const show = (id, ok) => { const el = document.getElementById(id); if (el) el.style.display = ok ? "" : "none"; };
+      show("tab-comissoes", can("ver_comissoes"));
+      show("tab-clientes", can("ver_clientes"));
+      show("btn-novo-orcamento", can("criar_orcamento"));
+      show("ia-box", can("usar_ia"));
+      show("btn-limpar-prontos", can("excluir"));
+    }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
     function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
     async function loadAll() {
@@ -425,12 +451,12 @@
       list.innerHTML = quotes.length ? quotes.map(q => `
         <div class="card"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
-          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>
+          ${can("aprovar") ? `<button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>` : ""}
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="pdfQuote('${q.id}')">📄 PDF</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="enviarOrcamento('${q.id}')">📤 Enviar PDF</button>
-          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="editQuote('${q.id}')">✏️ Editar</button>
+          ${can("editar") ? `<button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="editQuote('${q.id}')">✏️ Editar</button>` : ""}
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Avisar</button>
-          <button class="btn-danger" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="cancelarOrcamento('${q.id}')">🗑️ Cancelar</button>
+          ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="cancelarOrcamento('${q.id}')">🗑️ Cancelar</button>` : ""}
         </div></div>`).join("") : `<p style="text-align:center;color:var(--secondary);padding:20px;">${term ? "Nenhum orçamento encontrado para essa busca." : 'Nenhum orçamento ainda. Toque em "+ Novo Orçamento".'}</p>`;
     }
 
@@ -448,7 +474,7 @@
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','PRONTO_RETIRADA')">✅ Pronto</button>
           <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="togglePago('${o.id}')">${o.paid ? "↩️ Desf. pago" : "💵 Recebido"}</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppOrder('${o.id}')">💬 Cobrar</button>
-          <button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirPedido('${o.id}')">🗑️ Excluir</button>
+          ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirPedido('${o.id}')">🗑️ Excluir</button>` : ""}
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum pedido ainda. Aprove um orçamento.</p>';
     }
 
@@ -459,8 +485,8 @@
       list.innerHTML = clients.length ? clients.map(c => `<div class="card"><h4>${c.name || "(sem nome)"}</h4><p>📱 ${c.phone || "sem telefone"}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="window.open('https://wa.me/'+waNumber('${c.phone}'),'_blank')">💬 WhatsApp</button>
-          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="editClient('${c.id}')">✏️ Editar</button>
-          <button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteClient('${c.id}')">🗑️ Excluir</button>
+          ${can("editar") ? `<button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="editClient('${c.id}')">✏️ Editar</button>` : ""}
+          ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteClient('${c.id}')">🗑️ Excluir</button>` : ""}
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum cliente encontrado.</p>';
     }
     async function editClient(id) {

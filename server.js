@@ -22,6 +22,11 @@ async function sbUserDelete(id) { try { await fetch(`${SUPA_URL}/rest/v1/rp_user
 function hashPass(p) { const salt = crypto.randomBytes(16).toString('hex'); const h = crypto.scryptSync(String(p), salt, 64).toString('hex'); return `scrypt$${salt}$${h}`; }
 function verifyPass(p, stored) { try { const parts = String(stored).split('$'); const salt = parts[1], h = parts[2]; const calc = crypto.scryptSync(String(p), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(h, 'hex')); } catch (e) { return false; } }
 function clampPct(v, def) { let n = Number(v); if (!isFinite(n)) n = def; return Math.min(20, Math.max(1, Math.round(n))); }
+const PERM_KEYS = ['criar_orcamento', 'editar', 'excluir', 'aprovar', 'ver_comissoes', 'ver_clientes', 'usar_ia', 'ver_todos'];
+const DEFAULT_PERMS = { criar_orcamento: true, editar: true, excluir: false, aprovar: true, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
+function allPerms() { const o = {}; PERM_KEYS.forEach(k => o[k] = true); return o; }
+function effPerms(usr) { if (usr.role === 'admin') return allPerms(); const base = Object.assign({}, DEFAULT_PERMS); const p = usr.perms || {}; PERM_KEYS.forEach(k => { if (k in p) base[k] = !!p[k]; }); return base; }
+function cleanPerms(input) { const o = {}; PERM_KEYS.forEach(k => { o[k] = !!(input && input[k]); }); return o; }
 function sign(obj) { const data = Buffer.from(JSON.stringify(obj)).toString('base64url'); const mac = crypto.createHmac('sha256', SECRET).update(data).digest('base64url'); return data + '.' + mac; }
 function verifyToken(token) {
   if (!token) return null;
@@ -94,16 +99,20 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => { res.set('Set-Cookie', 'rp_sess=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'); res.json({ ok: true }); });
-app.get('/api/me', (req, res) => res.json({ user: { u: req.user.u, name: req.user.name, role: req.user.role, com: req.user.com || 5 } }));
+app.get('/api/me', async (req, res) => {
+  const usr = (await sbUsers(`id=eq.${req.user.id}&limit=1`))[0];
+  if (!usr || usr.active === false) { res.set('Set-Cookie', 'rp_sess=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'); return res.status(401).json({ error: 'Usuário inativo.' }); }
+  res.json({ user: { u: usr.username, name: usr.name || usr.username, role: usr.role, com: Number(usr.commission_default) || 5, perms: effPerms(usr) } });
+});
 
 // ---------- Admin: gestão de usuários ----------
 function requireAdmin(req, res, next) { if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Apenas o admin pode gerenciar usuários.' }); next(); }
-app.get('/api/users', requireAdmin, async (req, res) => { res.json({ users: await sbUsers('select=id,username,name,role,commission_default,active,created_at&order=created_at.asc') }); });
+app.get('/api/users', requireAdmin, async (req, res) => { res.json({ users: await sbUsers('select=id,username,name,role,commission_default,active,perms,created_at&order=created_at.asc') }); });
 app.post('/api/users', requireAdmin, async (req, res) => {
   const b = req.body || {}; const username = String(b.username || '').trim().toLowerCase();
   if (!username || !b.pass) return res.status(400).json({ error: 'Login e senha são obrigatórios.' });
   if ((await sbUsers(`username=eq.${encodeURIComponent(username)}&limit=1`))[0]) return res.status(409).json({ error: 'Esse login já existe.' });
-  const row = await sbUserInsert({ username, pass: hashPass(b.pass), name: b.name || username, role: b.role === 'admin' ? 'admin' : 'vendedor', commission_default: clampPct(b.commission_default, 5), active: true });
+  const row = await sbUserInsert({ username, pass: hashPass(b.pass), name: b.name || username, role: b.role === 'admin' ? 'admin' : 'vendedor', commission_default: clampPct(b.commission_default, 5), active: true, perms: cleanPerms(b.perms || DEFAULT_PERMS) });
   res.json({ ok: !!row });
 });
 app.patch('/api/users/:id', requireAdmin, async (req, res) => {
@@ -113,6 +122,7 @@ app.patch('/api/users/:id', requireAdmin, async (req, res) => {
   if (b.commission_default != null) upd.commission_default = clampPct(b.commission_default, 5);
   if (b.active != null) upd.active = !!b.active;
   if (b.pass) upd.pass = hashPass(b.pass);
+  if (b.perms != null) upd.perms = cleanPerms(b.perms);
   res.json({ ok: !!(await sbUserPatch(req.params.id, upd)) });
 });
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
