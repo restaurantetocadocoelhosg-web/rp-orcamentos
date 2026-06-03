@@ -84,6 +84,7 @@
       <button class="tab" data-target="pedidos">Pedidos</button>
       <button class="tab" data-target="clientes">Clientes</button>
       <button class="tab" data-target="cobrancas">Cobranças</button>
+      <button class="tab" data-target="comissoes">Comissões</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
@@ -105,6 +106,10 @@
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Orçamentos ainda não aprovados — cobre pelo WhatsApp. ⏰ a partir de 7 dias · ⚠️ vencidos (15 dias).</div>
         <button class="btn-primary" onclick="relatorioCobrancas()" style="margin-bottom:10px;">📩 Me enviar a lista no WhatsApp</button>
         <div id="cobr-list" class="list"></div>
+      </section>
+      <section id="comissoes" class="panel">
+        <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Comissões por vendedor. A comissão entra como "a pagar" quando o pedido é marcado como <b>💵 Recebido</b> (cliente pagou). Admin marca "Pix pago" ao quitar.</div>
+        <div id="comissoes-list" class="list"></div>
       </section>
       <section id="adm" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Equipe — crie, edite ou desative os logins dos funcionários (admin vê tudo; vendedor vê só os próprios orçamentos).</div>
@@ -135,6 +140,8 @@
           </div>
         </div>
         <button type="button" class="btn-secondary" onclick="addItemRow()">+ Item</button>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-top:10px;">💸 Comissão do vendedor: <b id="q-com-val">5</b>%</label>
+        <input type="range" id="q-com" min="1" max="20" value="5" style="width:100%; margin-bottom:6px;" oninput="document.getElementById('q-com-val').textContent=this.value">
         <div class="modal-actions">
           <button type="button" class="btn-danger" onclick="closeQuoteModal()">Cancelar</button>
           <button type="submit" class="btn-success">✅ Gerar PDF & Salvar</button>
@@ -193,6 +200,7 @@
           CURRENT_USER = d.user;
           document.getElementById("user-tag").textContent = `👤 ${d.user.name}${d.user.role === "admin" ? " (admin)" : ""}`;
           document.getElementById("tab-adm").style.display = d.user.role === "admin" ? "" : "none";
+          renderQuotes(); renderOrders(); renderCobrancas(); renderComissoes();
         }
       } catch (e) {}
     }
@@ -237,6 +245,7 @@
       document.getElementById("u-com").value = u.commission_default || 5; document.getElementById("u-com-val").textContent = String(u.commission_default || 5);
       document.getElementById("user-modal").classList.remove("hidden");
     }
+    function setQuoteCommission(pct) { document.getElementById("q-com").value = pct; document.getElementById("q-com-val").textContent = String(pct); }
     function closeUserModal() { document.getElementById("user-modal").classList.add("hidden"); document.getElementById("u-login").disabled = false; }
     async function toggleUser(id, active) { await apiJSON(`api/users/${id}`, { method: "PATCH", body: JSON.stringify({ active: active }) }); renderAdmin(); }
     async function deleteUser(id, nome) { if (!confirm(`Excluir o usuário ${nome}? Não dá pra desfazer.`)) return; const { ok, d } = await apiJSON(`api/users/${id}`, { method: "DELETE" }); if (!ok) alert(d.error || "Não foi possível excluir."); renderAdmin(); }
@@ -269,9 +278,12 @@
     function matchSearch(rec, term) {
       if (!term) return true;
       const itens = (rec.items || []).map(i => i.desc || "").join(" ");
-      const hay = `${(rec.client && rec.client.name) || ""} ${(rec.client && rec.client.phone) || ""} ${rec.number || ""} ${itens}`.toLowerCase();
+      const hay = `${(rec.client && rec.client.name) || ""} ${(rec.client && rec.client.phone) || ""} ${rec.number || ""} ${itens} ${(rec.seller && rec.seller.name) || ""}`.toLowerCase();
       return term.toLowerCase().split(/\s+/).filter(Boolean).every(t => hay.includes(t));
     }
+    function isAdmin() { return CURRENT_USER && CURRENT_USER.role === "admin"; }
+    // vendedor vê só o que é dele; admin vê tudo; sem login carregado ainda = mostra (re-renderiza após loadMe).
+    function ownsRec(rec) { return !CURRENT_USER || isAdmin() || (rec.seller && rec.seller.u === CURRENT_USER.u); }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
     function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
     async function loadAll() {
@@ -304,6 +316,7 @@
           btn.classList.add("active");
           document.getElementById(btn.dataset.target).classList.add("active");
           if (btn.dataset.target === "adm") renderAdmin();
+          if (btn.dataset.target === "comissoes") renderComissoes();
         });
       });
     }
@@ -322,6 +335,8 @@
       editingQuoteId = null;
       document.getElementById("quote-form").reset();
       document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      const def = (CURRENT_USER && CURRENT_USER.com) || 5;
+      document.getElementById("q-com").value = def; document.getElementById("q-com-val").textContent = String(def);
       setQuoteModalMode(false);
       document.getElementById("quote-modal").classList.remove("hidden");
     }
@@ -343,6 +358,7 @@
         row.innerHTML = `<input type="text" class="i-desc" value="${String(it.desc || "").replace(/"/g, "&quot;")}" placeholder="Produto/Modelo" required><input type="number" class="i-qty" min="1" value="${it.qty || 1}" required><input type="number" class="i-price" step="0.01" value="${it.price || ""}" placeholder="R$ Un" required>`;
         cont.appendChild(row);
       });
+      setQuoteCommission(q.commissionPct || (CURRENT_USER && CURRENT_USER.com) || 5);
       setQuoteModalMode(true, q);
       document.getElementById("quote-modal").classList.remove("hidden");
     }
@@ -372,12 +388,13 @@
       });
       if (!items.length) { alert("Adicione ao menos um item com quantidade e preço."); return; }
       const total = items.reduce((acc, i) => acc + i.total, 0);
+      const commissionPct = parseInt(document.getElementById("q-com").value) || 5;
 
       // ----- EDIÇÃO de orçamento existente -----
       if (editingQuoteId) {
         const q = STATE.quotes.find(x => x.id === editingQuoteId);
         if (q) {
-          q.client = { name: clientName, phone: clientPhone }; q.items = items; q.total = total;
+          q.client = { name: clientName, phone: clientPhone }; q.items = items; q.total = total; q.commissionPct = commissionPct;
           await sbPatch("rp_quotes", "id", q.id, { data: q }); await saveClient(q.client); cacheSave();
           closeQuoteModal(); renderQuotes(); renderCobrancas();
           alert(`✅ Orçamento ${q.number} atualizado!`);
@@ -390,7 +407,7 @@
       let photoBase64 = null;
       if (photoInput.files[0]) photoBase64 = await readFileAsBase64(photoInput.files[0]);
       const number = getNextQuoteNumber();
-      const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString(), seller: CURRENT_USER ? { u: CURRENT_USER.u, name: CURRENT_USER.name } : null };
+      const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString(), seller: CURRENT_USER ? { u: CURRENT_USER.u, name: CURRENT_USER.name } : null, commissionPct: commissionPct };
       STATE.quotes.unshift(quote);
       await saveQuote(quote); await saveClient(quote.client); cacheSave();
       closeQuoteModal(); renderQuotes(); renderCobrancas();
@@ -404,7 +421,7 @@
     function renderQuotes() {
       const list = document.getElementById("quotes-list");
       const se = document.getElementById("quote-search"); const term = se ? se.value.trim() : "";
-      const quotes = STATE.quotes.filter(q => matchSearch(q, term));
+      const quotes = STATE.quotes.filter(q => ownsRec(q) && matchSearch(q, term));
       list.innerHTML = quotes.length ? quotes.map(q => `
         <div class="card"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
@@ -420,14 +437,16 @@
     function renderOrders() {
       const list = document.getElementById("orders-list");
       const se = document.getElementById("order-search"); const term = se ? se.value.trim() : "";
-      const orders = STATE.orders.filter(o => matchSearch(o, term));
+      const orders = STATE.orders.filter(o => ownsRec(o) && matchSearch(o, term));
       list.innerHTML = orders.length ? orders.map(o => `
         <div class="card"><h4>${o.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${o.number}</span></h4><p>📦 Status: <span class="status ${o.status.toLowerCase()}">${o.status.replace("_", " ")}</span></p>
-        <p>💰 Sinal: R$ ${(o.total * 0.3).toFixed(2)} | Total: R$ ${o.total.toFixed(2)}</p>
+        <p>💰 Total: R$ ${o.total.toFixed(2)} · Sinal: R$ ${(o.total * 0.3).toFixed(2)}</p>
+        <p style="font-size:0.82rem; color:var(--secondary);">${o.seller ? "👤 " + o.seller.name + " · " : ""}💸 Comissão ${o.commissionPct || 5}% = R$ ${(o.total * (o.commissionPct || 5) / 100).toFixed(2)} · ${o.paid ? "✅ PAGO pelo cliente" : "⏳ aguardando pagamento"}</p>
         <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_FABRICACAO')">🔧 Fabricação</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_ESTOQUE')">📦 Estoque</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','PRONTO_RETIRADA')">✅ Pronto</button>
+          <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="togglePago('${o.id}')">${o.paid ? "↩️ Desf. pago" : "💵 Recebido"}</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppOrder('${o.id}')">💬 Cobrar</button>
           <button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirPedido('${o.id}')">🗑️ Excluir</button>
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum pedido ainda. Aprove um orçamento.</p>';
@@ -462,9 +481,9 @@
       const q = STATE.quotes.find(x => x.id === id); if (!q) return;
       q.status = "APROVADO"; await sbPatch("rp_quotes", "id", q.id, { data: q });
       const orderNum = `PED-${new Date().getFullYear()}-${String(STATE.orders.length + 1).padStart(4, "0")}`;
-      const order = { id: crypto.randomUUID(), number: orderNum, quoteId: q.id, client: q.client, items: q.items, total: q.total, status: "EM_FABRICACAO", createdAt: new Date().toISOString() };
+      const order = { id: crypto.randomUUID(), number: orderNum, quoteId: q.id, client: q.client, items: q.items, total: q.total, status: "EM_FABRICACAO", createdAt: new Date().toISOString(), seller: q.seller || null, commissionPct: q.commissionPct || 5, paid: false, paidAt: null, commissionStatus: null };
       STATE.orders.unshift(order); await sbInsert("rp_orders", { id: order.id, number: order.number, data: order });
-      cacheSave(); renderQuotes(); renderOrders();
+      cacheSave(); renderQuotes(); renderOrders(); renderComissoes();
       alert(`✅ Orçamento aprovado! Pedido ${orderNum} criado.`);
     }
 
@@ -485,6 +504,14 @@
       for (const o of prontos) { await sbDelete("rp_orders", "id", o.id); }
       STATE.orders = STATE.orders.filter(o => o.status !== "PRONTO_RETIRADA");
       cacheSave(); renderOrders();
+    }
+    // Cliente pagou → comissão entra como "a pagar". Desfazer volta atrás (se ainda não foi quitada).
+    async function togglePago(id) {
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
+      o.paid = !o.paid;
+      if (o.paid) { o.paidAt = new Date().toISOString(); if (o.commissionStatus !== "pago") o.commissionStatus = "a_pagar"; }
+      else { o.paidAt = null; if (o.commissionStatus !== "pago") o.commissionStatus = null; }
+      await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderOrders(); renderComissoes();
     }
 
     function updateFab() { document.getElementById("fab-whatsapp").href = `https://wa.me/${COMPANY.whatsapp}`; }
@@ -522,7 +549,7 @@
     }
 
     function relatorioCobrancas() {
-      const pend = STATE.quotes.filter(q => q.status !== "APROVADO").slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+      const pend = STATE.quotes.filter(q => q.status !== "APROVADO" && ownsRec(q)).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
       if (!pend.length) { alert("Nenhum orçamento pendente. 🎉"); return; }
       let txt = "*Orçamentos pendentes — Casa RP* 📋\n\n";
       pend.forEach(q => {
@@ -534,7 +561,7 @@
     }
     function renderCobrancas() {
       const list = document.getElementById("cobr-list");
-      const pend = STATE.quotes.filter(q => q.status !== "APROVADO").slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+      const pend = STATE.quotes.filter(q => q.status !== "APROVADO" && ownsRec(q)).slice().sort((a, b) => new Date(a.date) - new Date(b.date));
       if (!pend.length) { list.innerHTML = '<p style="text-align:center; color:var(--secondary); padding:20px;">Nenhum orçamento pendente. 🎉</p>'; return; }
       list.innerHTML = pend.map(q => {
         const dias = Math.floor((Date.now() - new Date(q.date).getTime()) / 86400000);
@@ -545,6 +572,37 @@
           <p>📅 ${dias} dia(s) · 💰 R$ ${q.total.toFixed(2)} · ${tag}</p>
           <button class="btn-success" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Cobrar no WhatsApp</button></div>`;
       }).join("");
+    }
+
+    function renderComissoes() {
+      const list = document.getElementById("comissoes-list"); if (!list) return;
+      const orders = STATE.orders.filter(o => ownsRec(o) && o.commissionStatus);
+      if (!orders.length) { list.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:20px;">Sem comissões ainda. Marque um pedido como "💵 Recebido" (na aba Pedidos) para gerar a comissão.</p>'; return; }
+      const groups = {};
+      orders.forEach(o => {
+        const k = (o.seller && o.seller.u) || "—", nm = (o.seller && o.seller.name) || "Sem vendedor";
+        groups[k] = groups[k] || { name: nm, apagar: 0, pago: 0, items: [] };
+        const val = o.total * (o.commissionPct || 5) / 100;
+        if (o.commissionStatus === "pago") groups[k].pago += val; else groups[k].apagar += val;
+        groups[k].items.push({ o, val });
+      });
+      list.innerHTML = Object.keys(groups).map(k => {
+        const g = groups[k];
+        const linhas = g.items.sort((a, b) => (a.o.commissionStatus > b.o.commissionStatus ? 1 : -1)).map(it => `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:0.82rem; border-top:1px solid var(--border); padding:5px 0;">
+            <span>${it.o.number} · ${it.o.client.name || ""} · R$ ${it.val.toFixed(2)} ${it.o.commissionStatus === "pago" ? "✅" : "🟡"}</span>
+            ${(isAdmin() && it.o.commissionStatus === "a_pagar") ? `<button class="btn-success" style="width:auto; padding:4px 8px; font-size:0.72rem; margin:0;" onclick="marcarComissaoPaga('${it.o.id}')">Pix pago</button>` : ""}
+          </div>`).join("");
+        return `<div class="card"><h4>👤 ${g.name}</h4>
+          <p>🟡 A pagar: <b style="color:var(--danger);">R$ ${g.apagar.toFixed(2)}</b> · ✅ Pago: R$ ${g.pago.toFixed(2)}</p>
+          ${linhas}</div>`;
+      }).join("");
+    }
+    async function marcarComissaoPaga(id) {
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
+      if (!confirm(`Marcar a comissão do pedido ${o.number} como PAGA (Pix)?`)) return;
+      o.commissionStatus = "pago"; o.commissionPaidAt = new Date().toISOString();
+      await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderComissoes();
     }
 
     function buildPDF(q) {
