@@ -81,6 +81,7 @@
     </header>
     <nav class="tabs">
       <button class="tab active" data-target="orcamentos">Orçamentos</button>
+      <button class="tab" data-target="servicos" id="tab-servicos">🔧 Serviço</button>
       <button class="tab" data-target="pedidos">Pedidos</button>
       <button class="tab" data-target="clientes" id="tab-clientes">Clientes</button>
       <button class="tab" data-target="cobrancas">Cobranças</button>
@@ -93,6 +94,12 @@
         <button class="btn-primary" id="btn-novo-orcamento" onclick="openQuoteModal()">+ Novo Orçamento</button>
         <input type="text" id="quote-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderQuotes()" style="margin-top:10px;">
         <div id="quotes-list" class="list"></div>
+      </section>
+      <section id="servicos" class="panel">
+        <button class="btn-primary" id="btn-novo-servico" onclick="openServiceModal()">+ Nova Ordem de Serviço</button>
+        <input type="text" id="service-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderServices()" style="margin-top:10px;">
+        <div style="font-size:0.8rem; color:var(--secondary); margin:8px 0;">📅 Agenda de serviços, em ordem de data. ⏰ prazo de entrega padrão de 3 dias · <b style="color:var(--danger);">atrasado</b> quando passa da data de entrega.</div>
+        <div id="services-list" class="list"></div>
       </section>
       <section id="pedidos" class="panel">
         <input type="text" id="order-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderOrders()">
@@ -164,6 +171,27 @@
     </div>
   </div>
 
+  <div id="service-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="service-modal-title">Nova Ordem de Serviço</h3>
+      <form id="service-form">
+        <input type="text" id="s-client-name" placeholder="Nome do Cliente" required>
+        <input type="tel" id="s-client-phone" placeholder="WhatsApp (ex: 21999999999)">
+        <textarea id="s-desc" rows="3" placeholder="Descrição do serviço" required style="width:100%; padding:10px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px;"></textarea>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block;">📅 Data do serviço</label>
+        <input type="date" id="s-date" required>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block;">⏰ Data de entrega <span style="color:var(--secondary);">(padrão: 3 dias)</span></label>
+        <input type="date" id="s-due" required>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block;">💰 Valor (R$)</label>
+        <input type="number" id="s-value" step="0.01" min="0" placeholder="0,00" required>
+        <div class="modal-actions">
+          <button type="button" class="btn-danger" onclick="closeServiceModal()">Cancelar</button>
+          <button type="submit" class="btn-success">💾 Salvar serviço</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="user-modal" class="modal hidden">
     <div class="modal-content">
       <h3 id="user-modal-title">Novo usuário</h3>
@@ -203,8 +231,9 @@
     const SUPA_URL = "https://zuwdgyvbuaocbzckhhlm.supabase.co";
     const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2RneXZidWFvY2J6Y2toaGxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2ODk0MTUsImV4cCI6MjA5MjI2NTQxNX0._v0lytkvd854urjD0l45rX9vrzSUh0Ro2VuGINsLwmM";
     const SB_H = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json" };
-    let STATE = { quotes: [], orders: [], clients: [] };
+    let STATE = { quotes: [], orders: [], clients: [], services: [] };
     let editingQuoteId = null;
+    let editingServiceId = null;
     let CURRENT_USER = null;
     let editingUserId = null;
 
@@ -321,21 +350,23 @@
       show("tab-comissoes", can("ver_comissoes"));
       show("tab-clientes", can("ver_clientes"));
       show("btn-novo-orcamento", can("criar_orcamento"));
+      show("btn-novo-servico", can("criar_orcamento"));
       show("ia-box", can("usar_ia"));
       show("btn-limpar-prontos", can("excluir"));
       show("tab-assistente", can("usar_ia"));
     }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
-    function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
+    function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} STATE.quotes = STATE.quotes || []; STATE.orders = STATE.orders || []; STATE.clients = STATE.clients || []; STATE.services = STATE.services || []; }
     async function loadAll() {
-      const [q, o, c] = await Promise.all([
+      const [q, o, c, s] = await Promise.all([
         sbSelect("rp_quotes", "select=*&order=created_at.desc"),
         sbSelect("rp_orders", "select=*&order=created_at.desc"),
-        sbSelect("rp_clients", "select=*&order=created_at.desc")
+        sbSelect("rp_clients", "select=*&order=created_at.desc"),
+        sbSelect("rp_services", "select=*&order=created_at.desc")
       ]);
       if (q === null || o === null || c === null) { cacheLoad(); }
-      else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; cacheSave(); }
-      renderQuotes(); renderOrders(); renderClients(); renderCobrancas();
+      else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; STATE.services = (s || []).map(r => ({ ...r.data, id: r.id })); cacheSave(); }
+      renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); renderServices();
     }
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -346,7 +377,7 @@
           document.getElementById("app").classList.remove("hidden");
         }, 500);
       }, 2000);
-      initTabs(); loadMe(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); updateFab(); loadAll();
+      initTabs(); loadMe(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); renderServices(); updateFab(); loadAll();
     });
 
     function initTabs() {
@@ -358,6 +389,7 @@
           document.getElementById(btn.dataset.target).classList.add("active");
           if (btn.dataset.target === "adm") renderAdmin();
           if (btn.dataset.target === "comissoes") renderComissoes();
+          if (btn.dataset.target === "servicos") renderServices();
         });
       });
     }
@@ -652,6 +684,115 @@
       if (!confirm(`Marcar a comissão do pedido ${o.number} como PAGA (Pix)?`)) return;
       o.commissionStatus = "pago"; o.commissionPaidAt = new Date().toISOString();
       await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderComissoes();
+    }
+
+    // ===== Serviços (Ordem de Serviço) =====
+    function todayYMD() { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+    function addDaysYMD(base, n) { const d = new Date((base || todayYMD()) + "T00:00:00"); d.setDate(d.getDate() + n); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+    function fmtYMD(ymd) { if (!ymd) return "—"; try { return new Date(ymd + "T00:00:00").toLocaleDateString("pt-BR"); } catch (e) { return ymd; } }
+    function getNextServiceNumber() {
+      const year = new Date().getFullYear();
+      const n = STATE.services.filter(s => (s.number || "").startsWith(`OS-${year}`)).length + 1;
+      return `OS-${year}-${String(n).padStart(4, "0")}`;
+    }
+    async function saveService(s) { await sbInsert("rp_services", { id: s.id, number: s.number, data: s }); }
+
+    function openServiceModal() {
+      editingServiceId = null;
+      document.getElementById("service-form").reset();
+      document.getElementById("service-modal-title").textContent = "Nova Ordem de Serviço";
+      document.querySelector('#service-form button[type="submit"]').textContent = "💾 Salvar serviço";
+      const hoje = todayYMD();
+      document.getElementById("s-date").value = hoje;
+      document.getElementById("s-due").value = addDaysYMD(hoje, 3);
+      document.getElementById("service-modal").classList.remove("hidden");
+    }
+    function closeServiceModal() {
+      document.getElementById("service-modal").classList.add("hidden");
+      document.getElementById("service-form").reset();
+      editingServiceId = null;
+    }
+    function editService(id) {
+      const s = STATE.services.find(x => x.id === id); if (!s) return;
+      editingServiceId = id;
+      document.getElementById("service-modal-title").textContent = `✏️ Editar ${s.number}`;
+      document.querySelector('#service-form button[type="submit"]').textContent = "💾 Salvar alterações";
+      document.getElementById("s-client-name").value = (s.client && s.client.name) || "";
+      document.getElementById("s-client-phone").value = (s.client && s.client.phone) || "";
+      document.getElementById("s-desc").value = s.desc || "";
+      document.getElementById("s-date").value = s.date || todayYMD();
+      document.getElementById("s-due").value = s.dueDate || addDaysYMD(s.date, 3);
+      document.getElementById("s-value").value = s.value != null ? s.value : "";
+      document.getElementById("service-modal").classList.remove("hidden");
+    }
+    document.getElementById("service-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const client = { name: document.getElementById("s-client-name").value.trim(), phone: document.getElementById("s-client-phone").value.replace(/\D/g, "") };
+      const desc = document.getElementById("s-desc").value.trim();
+      const date = document.getElementById("s-date").value;
+      const dueDate = document.getElementById("s-due").value;
+      const value = parseFloat(document.getElementById("s-value").value) || 0;
+      if (!client.name || !desc || !date || !dueDate) { alert("Preencha cliente, descrição, data do serviço e data de entrega."); return; }
+
+      if (editingServiceId) {
+        const s = STATE.services.find(x => x.id === editingServiceId);
+        if (s) {
+          Object.assign(s, { client, desc, date, dueDate, value });
+          await sbPatch("rp_services", "id", s.id, { number: s.number, data: s }); await saveClient(client); cacheSave();
+          closeServiceModal(); renderServices();
+          alert(`✅ Serviço ${s.number} atualizado!`);
+        }
+        return;
+      }
+      const number = getNextServiceNumber();
+      const service = { id: crypto.randomUUID(), number, client, desc, date, dueDate, value, status: "ABERTO", createdAt: new Date().toISOString(), seller: CURRENT_USER ? { u: CURRENT_USER.u, name: CURRENT_USER.name } : null };
+      STATE.services.unshift(service);
+      await saveService(service); await saveClient(client); cacheSave();
+      closeServiceModal(); renderServices();
+      alert(`✅ Ordem de serviço ${number} criada!`);
+    });
+
+    function renderServices() {
+      const list = document.getElementById("services-list"); if (!list) return;
+      const se = document.getElementById("service-search"); const term = se ? se.value.trim() : "";
+      const hoje = todayYMD();
+      const servs = STATE.services.filter(s => ownsRec(s) && matchSearch(s, term))
+        .slice().sort((a, b) => (a.date || "9999") < (b.date || "9999") ? -1 : 1);
+      if (!servs.length) { list.innerHTML = `<p style="text-align:center;color:var(--secondary);padding:20px;">${term ? "Nenhum serviço encontrado." : 'Nenhum serviço ainda. Toque em "+ Nova Ordem de Serviço".'}</p>`; return; }
+      list.innerHTML = servs.map(s => {
+        const entregue = s.status === "ENTREGUE";
+        const atrasado = !entregue && s.dueDate && s.dueDate < hoje;
+        const cor = entregue ? "var(--success)" : atrasado ? "var(--danger)" : "var(--primary)";
+        const tag = entregue ? "✅ entregue" : atrasado ? "⚠️ atrasado" : "🔧 aberto";
+        return `<div class="card" style="border-left-color:${cor}">
+          <h4>${(s.client && s.client.name) || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${s.number}</span></h4>
+          <p style="white-space:pre-wrap;">📝 ${(s.desc || "").replace(/</g, "&lt;")}</p>
+          <p>📅 Serviço: ${fmtYMD(s.date)} · ⏰ Entrega: <b style="color:${atrasado ? "var(--danger)" : "inherit"}">${fmtYMD(s.dueDate)}</b> · 💰 R$ ${(s.value || 0).toFixed(2)} · ${tag}</p>
+          ${s.seller ? `<p style="font-size:0.8rem; color:var(--secondary);">👤 ${s.seller.name}</p>` : ""}
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+            <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="toggleServicoEntregue('${s.id}')">${entregue ? "↩️ Reabrir" : "✅ Entregue"}</button>
+            <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppServico('${s.id}')">💬 Avisar</button>
+            ${can("editar") ? `<button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="editService('${s.id}')">✏️ Editar</button>` : ""}
+            ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirServico('${s.id}')">🗑️ Excluir</button>` : ""}
+          </div></div>`;
+      }).join("");
+    }
+    async function toggleServicoEntregue(id) {
+      const s = STATE.services.find(x => x.id === id); if (!s) return;
+      s.status = s.status === "ENTREGUE" ? "ABERTO" : "ENTREGUE";
+      s.deliveredAt = s.status === "ENTREGUE" ? new Date().toISOString() : null;
+      await sbPatch("rp_services", "id", s.id, { number: s.number, data: s }); cacheSave(); renderServices();
+    }
+    async function excluirServico(id) {
+      const s = STATE.services.find(x => x.id === id); if (!s) return;
+      if (!confirm(`Excluir o serviço ${s.number} de ${(s.client && s.client.name) || "cliente"}? Não dá pra desfazer.`)) return;
+      STATE.services = STATE.services.filter(x => x.id !== id);
+      await sbDelete("rp_services", "id", id); cacheSave(); renderServices();
+    }
+    function sendWhatsAppServico(id) {
+      const s = STATE.services.find(x => x.id === id); if (!s) return;
+      const tel = waNumber(s.client && s.client.phone); if (!tel) { alert("Cliente sem telefone válido cadastrado."); return; }
+      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(`Olá ${(s.client && s.client.name) || ""}! 😊 Aqui é a Casa RP Resistências. Sobre o seu serviço ${s.number}: ${s.desc || ""}. Previsão de entrega: ${fmtYMD(s.dueDate)}. Qualquer dúvida, estou à disposição! 🔧`)}`, "_blank");
     }
 
     // ===== Assistente IA =====
