@@ -31,8 +31,8 @@
     .header { text-align: center; margin-bottom: 16px; }
     .header h2 { font-size: 1.3rem; color: var(--primary); }
     .header span { font-size: 0.8rem; color: var(--secondary); }
-    .tabs { display: flex; gap: 8px; margin-bottom: 16px; background: var(--card); padding: 6px; border-radius: 12px; box-shadow: var(--shadow); }
-    .tab { flex: 1; padding: 10px; border: none; background: transparent; font-weight: 500; color: var(--secondary); border-radius: 8px; cursor: pointer; transition: 0.2s; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; background: var(--card); padding: 6px; border-radius: 12px; box-shadow: var(--shadow); }
+    .tab { flex: 1 1 auto; min-width: 0; padding: 9px 8px; border: none; background: transparent; font-weight: 500; font-size: 0.82rem; color: var(--secondary); border-radius: 8px; cursor: pointer; transition: 0.2s; white-space: nowrap; }
     .tab.active { background: var(--primary); color: #FFF; }
     .panel { display: none; }
     .panel.active { display: block; }
