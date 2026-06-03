@@ -469,6 +469,7 @@
           ${can("aprovar") ? `<button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>` : ""}
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="pdfQuote('${q.id}')">📄 PDF</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="enviarOrcamento('${q.id}')">📤 Enviar PDF</button>
+          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="emailOrcamento('${q.id}')">📧 E-mail</button>
           ${can("editar") ? `<button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="editQuote('${q.id}')">✏️ Editar</button>` : ""}
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Avisar</button>
           ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="cancelarOrcamento('${q.id}')">🗑️ Cancelar</button>` : ""}
@@ -783,6 +784,19 @@
       doc.save(fname);
       if (tel) window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg + "\n\n(PDF baixado neste aparelho — anexe na conversa.)")}`, "_blank");
       else alert("PDF baixado. Cadastre um telefone válido do cliente para abrir o WhatsApp.");
+    }
+    // Enviar o orçamento por E-MAIL. No celular abre a folha de compartilhar (escolha "Mail") com o PDF anexado.
+    async function emailOrcamento(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      const fname = pdfFilename(q); const doc = buildPDF(q);
+      const assunto = `Orçamento ${q.number} - Casa RP Resistências`;
+      const corpo = `Olá ${q.client.name || ""},\n\nSegue em anexo o orçamento ${q.number}, no valor de R$ ${q.total.toFixed(2)} (válido por 15 dias).\n\nQualquer dúvida, estamos à disposição.\nCasa RP Resistências`;
+      try {
+        const file = new File([doc.output("blob")], fname, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: assunto, text: corpo }); return; }
+      } catch (e) { if (e && e.name === "AbortError") return; }
+      doc.save(fname);
+      window.location.href = `mailto:?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo + "\n\n(PDF baixado neste aparelho — anexe ao e-mail.)")}`;
     }
     // Ver/baixar o PDF. No celular usa a folha de compartilhar (salvar em Arquivos, etc.) — não trava a tela.
     async function pdfQuote(id) {
