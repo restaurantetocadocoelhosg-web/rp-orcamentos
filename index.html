@@ -379,7 +379,7 @@
         if (q) {
           q.client = { name: clientName, phone: clientPhone }; q.items = items; q.total = total;
           await sbPatch("rp_quotes", "id", q.id, { data: q }); await saveClient(q.client); cacheSave();
-          generatePDF(q); closeQuoteModal(); renderQuotes(); renderCobrancas();
+          closeQuoteModal(); renderQuotes(); renderCobrancas();
           alert(`✅ Orçamento ${q.number} atualizado!`);
         }
         return;
@@ -390,11 +390,11 @@
       let photoBase64 = null;
       if (photoInput.files[0]) photoBase64 = await readFileAsBase64(photoInput.files[0]);
       const number = getNextQuoteNumber();
-      const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString() };
+      const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString(), seller: CURRENT_USER ? { u: CURRENT_USER.u, name: CURRENT_USER.name } : null };
       STATE.quotes.unshift(quote);
       await saveQuote(quote); await saveClient(quote.client); cacheSave();
-      generatePDF(quote); closeQuoteModal(); renderQuotes(); renderCobrancas();
-      alert(`✅ Orçamento ${number} gerado com sucesso!`);
+      closeQuoteModal(); renderQuotes(); renderCobrancas();
+      alert(`✅ Orçamento ${number} criado! Use o botão 📄 PDF no card para ver, ou 📤 Enviar PDF para mandar ao cliente.`);
     });
 
     function readFileAsBase64(file) { return new Promise(r => { const f = new FileReader(); f.onloadend = () => r(f.result); f.readAsDataURL(file); }); }
@@ -409,6 +409,7 @@
         <div class="card"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>
+          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="pdfQuote('${q.id}')">📄 PDF</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="enviarOrcamento('${q.id}')">📤 Enviar PDF</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="editQuote('${q.id}')">✏️ Editar</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Avisar</button>
@@ -435,9 +436,26 @@
     function renderClients() {
       const list = document.getElementById("clients-list");
       const search = document.getElementById("client-search").value.toLowerCase();
-      const clients = STATE.clients;
-      list.innerHTML = clients.filter(c => c.name.toLowerCase().includes(search) || c.phone.includes(search))
-        .map(c => `<div class="card"><h4>${c.name}</h4><p>📱 ${c.phone}</p><button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; margin-top:4px;" onclick="window.open('https://wa.me/'+waNumber('${c.phone}'),'_blank')">💬 WhatsApp</button></div>`).join("");
+      const clients = STATE.clients.filter(c => (c.name || "").toLowerCase().includes(search) || (c.phone || "").includes(search));
+      list.innerHTML = clients.length ? clients.map(c => `<div class="card"><h4>${c.name || "(sem nome)"}</h4><p>📱 ${c.phone || "sem telefone"}</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="window.open('https://wa.me/'+waNumber('${c.phone}'),'_blank')">💬 WhatsApp</button>
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="editClient('${c.id}')">✏️ Editar</button>
+          <button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteClient('${c.id}')">🗑️ Excluir</button>
+        </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum cliente encontrado.</p>';
+    }
+    async function editClient(id) {
+      const c = STATE.clients.find(x => x.id === id); if (!c) return;
+      const name = prompt("Nome do cliente:", c.name || ""); if (name === null) return;
+      const phone = prompt("WhatsApp (só números, com DDD):", c.phone || ""); if (phone === null) return;
+      c.name = name.trim(); c.phone = String(phone).replace(/\D/g, "");
+      await sbPatch("rp_clients", "id", c.id, { name: c.name, phone: c.phone }); cacheSave(); renderClients();
+    }
+    async function deleteClient(id) {
+      const c = STATE.clients.find(x => x.id === id); if (!c) return;
+      if (!confirm(`Excluir o cliente ${c.name || ""}? (não apaga os orçamentos dele)`)) return;
+      STATE.clients = STATE.clients.filter(x => x.id !== id);
+      await sbDelete("rp_clients", "id", id); cacheSave(); renderClients();
     }
 
     async function approveQuote(id) {
@@ -600,8 +618,19 @@
       doc.setFont("helvetica", "normal").setFontSize(7.5); yy = y + 4; c2.forEach(t => { doc.text("-  " + t, M + 2, yy); yy += 4; });
       y += h2 + 6;
       doc.setFont("helvetica", "bold").setFontSize(8).setTextColor(...navy).text("PAGAMENTO: Visa - Master - Amex - Diners - Elo - Boleto - Pix - em até 6x sem juros", W / 2, y, { align: "center" });
-      if (q.photo) { try { doc.addImage(q.photo, "JPEG", M, y + 4, 38, 28); } catch (e) {} }
       doc.setFont("helvetica", "normal").setFontSize(6.8).setTextColor(95, 95, 95).text(`${COMPANY.razao} - CNPJ ${COMPANY.cnpj} - ${COMPANY.address}`, W / 2, 291, { align: "center" });
+      // Foto do produto em página própria e GRANDE (mantendo a proporção).
+      if (q.photo) {
+        try {
+          doc.addPage();
+          doc.setFont("helvetica", "bold").setFontSize(12).setTextColor(...navy).text(`FOTO DO PRODUTO — ${q.number}`, W / 2, 18, { align: "center" });
+          const p = doc.getImageProperties(q.photo);
+          const maxW = R - M, maxH = 250;
+          let iw = maxW, ih = iw * p.height / p.width;
+          if (ih > maxH) { ih = maxH; iw = ih * p.width / p.height; }
+          doc.addImage(q.photo, p.fileType || "JPEG", (W - iw) / 2, 26, iw, ih);
+        } catch (e) {}
+      }
       return doc;
     }
 
@@ -630,6 +659,16 @@
       doc.save(fname);
       if (tel) window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg + "\n\n(PDF baixado neste aparelho — anexe na conversa.)")}`, "_blank");
       else alert("PDF baixado. Cadastre um telefone válido do cliente para abrir o WhatsApp.");
+    }
+    // Ver/baixar o PDF. No celular usa a folha de compartilhar (salvar em Arquivos, etc.) — não trava a tela.
+    async function pdfQuote(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      const fname = pdfFilename(q); const doc = buildPDF(q);
+      try {
+        const file = new File([doc.output("blob")], fname, { type: "application/pdf" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; }
+      } catch (e) { if (e && e.name === "AbortError") return; }
+      doc.save(fname);
     }
 
     // PWA: service worker para funcionar offline e instalar na tela inicial
