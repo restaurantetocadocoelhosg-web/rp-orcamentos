@@ -7,6 +7,7 @@ const ALERT_TO = process.env.ALERT_TO || GMAIL_USER;  // p/ quem mandar o alerta
 const SUPA_URL = process.env.SUPA_URL || 'https://zuwdgyvbuaocbzckhhlm.supabase.co';
 const SUPA_ANON = process.env.SUPA_ANON || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const MAILBOX = process.env.ROBO_MAILBOX || 'INBOX';   // marcador/pasta que o robô lê (ex.: "Casa RP")
 const EVOLUTION_URL = process.env.EVOLUTION_URL;
 const EVOLUTION_KEY = process.env.EVOLUTION_KEY;
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'CASA RP RESISTENCIAS';
@@ -78,13 +79,15 @@ async function pollInbox() {
   let created = 0, candidatos = 0;
   await client.connect();
   try {
-    const lock = await client.getMailboxLock('INBOX');
+    const lock = await client.getMailboxLock(MAILBOX);
     try {
-      // Lê os últimos ~120 e-mails da INBOX (lido ou não) e filtra o assunto no código — não depende do índice de busca do Gmail.
+      // Lê os últimos e-mails da pasta/marcador (lido ou não). Em INBOX filtra o assunto por palavra-chave (caixa grande);
+      // num marcador dedicado (ex.: "Casa RP") processa todos e deixa a IA decidir se é orçamento.
+      const useKey = MAILBOX.toUpperCase() === 'INBOX';
       const total = client.mailbox.exists || 0;
-      const start = Math.max(1, total - 119);
+      const start = Math.max(1, total - (useKey ? 119 : 49));
       const uids = [];
-      try { for await (const msg of client.fetch(`${start}:*`, { envelope: true })) { const subj = (msg.envelope && msg.envelope.subject) || ''; if (KEY_RE.test(subj)) uids.push(msg.uid); } } catch (e) { log('fetch erro:', e.message); }
+      try { for await (const msg of client.fetch(`${start}:*`, { envelope: true })) { const subj = (msg.envelope && msg.envelope.subject) || ''; if (!useKey || KEY_RE.test(subj)) uids.push(msg.uid); } } catch (e) { log('fetch erro:', e.message); }
       candidatos = uids.length;
       for (const uid of uids.slice(-15)) {
         let parsed; try { const full = await client.fetchOne(uid, { source: true }, { uid: true }); parsed = await simpleParser(full.source); } catch (e) { continue; }
