@@ -106,7 +106,7 @@ async function sendAlert() {
     }).join('\n');
   }
   try {
-    const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: GMAIL_USER, pass: GMAIL_PASS } });
+    const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, requireTLS: true, auth: { user: GMAIL_USER, pass: GMAIL_PASS }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000 });
     await tx.sendMail({ from: `Casa RP Orçamentos <${GMAIL_USER}>`, to: ALERT_TO, subject: `Casa RP — orçamentos em aberto (${abertos.length})`, text: texto });
     log('alerta enviado p/', ALERT_TO);
     return { ok: true, abertos: abertos.length };
