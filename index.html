@@ -84,9 +84,11 @@
     <main class="content">
       <section id="orcamentos" class="panel active">
         <button class="btn-primary" onclick="openQuoteModal()">+ Novo Orçamento</button>
+        <input type="text" id="quote-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderQuotes()" style="margin-top:10px;">
         <div id="quotes-list" class="list"></div>
       </section>
       <section id="pedidos" class="panel">
+        <input type="text" id="order-search" placeholder="🔍 Buscar por cliente, telefone ou nº..." oninput="renderOrders()">
         <div id="orders-list" class="list"></div>
       </section>
       <section id="clientes" class="panel">
@@ -143,10 +145,19 @@
     const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2RneXZidWFvY2J6Y2toaGxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2ODk0MTUsImV4cCI6MjA5MjI2NTQxNX0._v0lytkvd854urjD0l45rX9vrzSUh0Ro2VuGINsLwmM";
     const SB_H = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json" };
     let STATE = { quotes: [], orders: [], clients: [] };
+    let editingQuoteId = null;
     async function sbSelect(table, q) { try { const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${q || ""}`, { headers: SB_H }); return r.ok ? await r.json() : []; } catch (e) { return null; } }
     async function sbInsert(table, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}`, { method: "POST", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
     async function sbPatch(table, col, val, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "PATCH", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
     async function sbUpsert(table, obj, onConflict) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", headers: { ...SB_H, "Prefer": "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
+    async function sbDelete(table, col, val) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "DELETE", headers: { ...SB_H, "Prefer": "return=minimal" } }); } catch (e) {} }
+    // Busca inteligente: nome, telefone, número e mercadoria (descrição dos itens).
+    function matchSearch(rec, term) {
+      if (!term) return true;
+      const itens = (rec.items || []).map(i => i.desc || "").join(" ");
+      const hay = `${(rec.client && rec.client.name) || ""} ${(rec.client && rec.client.phone) || ""} ${rec.number || ""} ${itens}`.toLowerCase();
+      return term.toLowerCase().split(/\s+/).filter(Boolean).every(t => hay.includes(t));
+    }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
     function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
     async function loadAll() {
@@ -188,11 +199,44 @@
       return `ORC-${year}-${String(n).padStart(4, "0")}`;
     }
 
-    function openQuoteModal() { document.getElementById("quote-modal").classList.remove("hidden"); }
+    function setQuoteModalMode(editing, q) {
+      document.querySelector("#quote-modal h3").textContent = editing ? `✏️ Editar ${q.number}` : "Novo Orçamento";
+      document.querySelector('#quote-form button[type="submit"]').textContent = editing ? "💾 Salvar alterações" : "✅ Gerar PDF & Salvar";
+    }
+    function openQuoteModal() {
+      editingQuoteId = null;
+      document.getElementById("quote-form").reset();
+      document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      setQuoteModalMode(false);
+      document.getElementById("quote-modal").classList.remove("hidden");
+    }
     function closeQuoteModal() {
       document.getElementById("quote-modal").classList.add("hidden");
       document.getElementById("quote-form").reset();
       document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      editingQuoteId = null;
+      setQuoteModalMode(false);
+    }
+    function editQuote(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      editingQuoteId = id;
+      document.getElementById("q-client-name").value = q.client.name || "";
+      document.getElementById("q-client-phone").value = q.client.phone || "";
+      const cont = document.getElementById("q-items"); cont.innerHTML = "";
+      (q.items && q.items.length ? q.items : [{ desc: "", qty: 1, price: "" }]).forEach(it => {
+        const row = document.createElement("div"); row.className = "item-row";
+        row.innerHTML = `<input type="text" class="i-desc" value="${String(it.desc || "").replace(/"/g, "&quot;")}" placeholder="Produto/Modelo" required><input type="number" class="i-qty" min="1" value="${it.qty || 1}" required><input type="number" class="i-price" step="0.01" value="${it.price || ""}" placeholder="R$ Un" required>`;
+        cont.appendChild(row);
+      });
+      setQuoteModalMode(true, q);
+      document.getElementById("quote-modal").classList.remove("hidden");
+    }
+    async function cancelarOrcamento(id) {
+      const q = STATE.quotes.find(x => x.id === id); if (!q) return;
+      if (!confirm(`Cancelar/excluir o orçamento ${q.number} de ${q.client.name || "cliente"}? Não dá pra desfazer.`)) return;
+      STATE.quotes = STATE.quotes.filter(x => x.id !== id);
+      await sbDelete("rp_quotes", "id", id); cacheSave();
+      renderQuotes(); renderCobrancas();
     }
     function addItemRow() {
       const row = document.createElement("div"); row.className = "item-row";
@@ -202,13 +246,8 @@
 
     document.getElementById("quote-form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const number = getNextQuoteNumber();
       const clientName = document.getElementById("q-client-name").value.trim();
       const clientPhone = document.getElementById("q-client-phone").value.replace(/\D/g, "");
-      const photoInput = document.getElementById("q-photo");
-      let photoBase64 = null;
-      if (photoInput.files[0]) photoBase64 = await readFileAsBase64(photoInput.files[0]);
-
       const items = [];
       document.querySelectorAll(".item-row").forEach(row => {
         const desc = row.querySelector(".i-desc").value.trim();
@@ -216,12 +255,30 @@
         const price = parseFloat(row.querySelector(".i-price").value) || 0;
         if (desc && qty > 0 && price > 0) items.push({ desc, qty, price, total: qty * price });
       });
-
+      if (!items.length) { alert("Adicione ao menos um item com quantidade e preço."); return; }
       const total = items.reduce((acc, i) => acc + i.total, 0);
+
+      // ----- EDIÇÃO de orçamento existente -----
+      if (editingQuoteId) {
+        const q = STATE.quotes.find(x => x.id === editingQuoteId);
+        if (q) {
+          q.client = { name: clientName, phone: clientPhone }; q.items = items; q.total = total;
+          await sbPatch("rp_quotes", "id", q.id, { data: q }); await saveClient(q.client); cacheSave();
+          generatePDF(q); closeQuoteModal(); renderQuotes(); renderCobrancas();
+          alert(`✅ Orçamento ${q.number} atualizado!`);
+        }
+        return;
+      }
+
+      // ----- NOVO orçamento -----
+      const photoInput = document.getElementById("q-photo");
+      let photoBase64 = null;
+      if (photoInput.files[0]) photoBase64 = await readFileAsBase64(photoInput.files[0]);
+      const number = getNextQuoteNumber();
       const quote = { id: crypto.randomUUID(), number, client: { name: clientName, phone: clientPhone }, items, total, photo: photoBase64, status: "EM_ANALISE", date: new Date().toISOString(), validUntil: new Date(Date.now() + 15 * 86400000).toISOString() };
       STATE.quotes.unshift(quote);
       await saveQuote(quote); await saveClient(quote.client); cacheSave();
-      generatePDF(quote); closeQuoteModal(); renderQuotes();
+      generatePDF(quote); closeQuoteModal(); renderQuotes(); renderCobrancas();
       alert(`✅ Orçamento ${number} gerado com sucesso!`);
     });
 
@@ -231,19 +288,23 @@
 
     function renderQuotes() {
       const list = document.getElementById("quotes-list");
-      const quotes = STATE.quotes;
+      const se = document.getElementById("quote-search"); const term = se ? se.value.trim() : "";
+      const quotes = STATE.quotes.filter(q => matchSearch(q, term));
       list.innerHTML = quotes.length ? quotes.map(q => `
         <div class="card"><h4>${q.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${q.number}</span></h4><p>📅 ${new Date(q.date).toLocaleDateString('pt-BR')} | 💰 R$ ${q.total.toFixed(2)}</p>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="approveQuote('${q.id}')">✅ Aprovar</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="enviarOrcamento('${q.id}')">📤 Enviar PDF</button>
+          <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="editQuote('${q.id}')">✏️ Editar</button>
           <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="sendWhatsAppQuote('${q.id}')">💬 Avisar</button>
-        </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum orçamento ainda. Toque em "+ Novo Orçamento".</p>';
+          <button class="btn-danger" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="cancelarOrcamento('${q.id}')">🗑️ Cancelar</button>
+        </div></div>`).join("") : `<p style="text-align:center;color:var(--secondary);padding:20px;">${term ? "Nenhum orçamento encontrado para essa busca." : 'Nenhum orçamento ainda. Toque em "+ Novo Orçamento".'}</p>`;
     }
 
     function renderOrders() {
       const list = document.getElementById("orders-list");
-      const orders = STATE.orders;
+      const se = document.getElementById("order-search"); const term = se ? se.value.trim() : "";
+      const orders = STATE.orders.filter(o => matchSearch(o, term));
       list.innerHTML = orders.length ? orders.map(o => `
         <div class="card"><h4>${o.client.name || "(sem nome)"} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· ${o.number}</span></h4><p>📦 Status: <span class="status ${o.status.toLowerCase()}">${o.status.replace("_", " ")}</span></p>
         <p>💰 Sinal: R$ ${(o.total * 0.3).toFixed(2)} | Total: R$ ${o.total.toFixed(2)}</p>
@@ -284,7 +345,7 @@
     function sendWhatsAppQuote(id) {
       const q = STATE.quotes.find(x => x.id === id); if (!q) return;
       const tel = waNumber(q.client.phone); if (!tel) { alert("Cliente sem telefone válido cadastrado."); return; }
-      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(`Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`)}`, "_blank");
+      window.open(`https://wa.me/${tel}?text=${encodeURIComponent(`Olá ${q.client.name}! 😊 Aqui é a Casa RP Resistências. Tudo bem? Passando pra saber se ficou alguma dúvida sobre o orçamento ${q.number} (R$ ${q.total.toFixed(2)}, válido por 15 dias). Estou à disposição! 🔧`)}`, "_blank");
     }
     function sendWhatsAppOrder(id) {
       const o = STATE.orders.find(x => x.id === id); if (!o) return;
@@ -414,7 +475,7 @@
     async function enviarOrcamento(id) {
       const q = STATE.quotes.find(x => x.id === id); if (!q) return;
       const tel = waNumber(q.client.phone);
-      const msg = `Olá ${q.client.name}! Segue o orçamento ${q.number} no valor de R$ ${q.total.toFixed(2)}. Válido por 15 dias. 📄✨`;
+      const msg = `Olá ${q.client.name}! 😊\nAqui é a *Casa RP Resistências*.\n\nSegue o seu orçamento *${q.number}* — total *R$ ${q.total.toFixed(2)}*. O PDF com todos os itens e condições está em anexo. 📄\n\n*Condições:*\n• Validade da proposta: 15 dias\n• Prazo de fabricação: 12 a 20 dias úteis\n• Sinal de 30% para iniciar a fabricação\n• Pagamento: Pix, boleto ou cartão em até 6x\n\nQualquer dúvida, estou à disposição! 🔧`;
       const fname = pdfFilename(q);
       const doc = buildPDF(q);
       try {
