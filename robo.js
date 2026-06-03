@@ -80,11 +80,13 @@ async function pollInbox() {
   try {
     const lock = await client.getMailboxLock('INBOX');
     try {
-      // busca do Gmail por palavra-chave (lido ou não, últimos 7 dias) — robusto p/ caixa cheia
-      let uids = [];
-      try { uids = await client.search({ gmraw: 'orcamento OR cotacao OR resistencia OR preco OR niple OR tubular OR imersao newer_than:7d' }, { uid: true }); } catch (e) { log('search erro:', e.message); }
-      candidatos = (uids || []).length;
-      for (const uid of (uids || []).slice(-15)) {
+      // Lê os últimos ~120 e-mails da INBOX (lido ou não) e filtra o assunto no código — não depende do índice de busca do Gmail.
+      const total = client.mailbox.exists || 0;
+      const start = Math.max(1, total - 119);
+      const uids = [];
+      try { for await (const msg of client.fetch(`${start}:*`, { envelope: true })) { const subj = (msg.envelope && msg.envelope.subject) || ''; if (KEY_RE.test(subj)) uids.push(msg.uid); } } catch (e) { log('fetch erro:', e.message); }
+      candidatos = uids.length;
+      for (const uid of uids.slice(-15)) {
         let parsed; try { const full = await client.fetchOne(uid, { source: true }, { uid: true }); parsed = await simpleParser(full.source); } catch (e) { continue; }
         const msgId = parsed.messageId || ('uid:' + uid);
         if (existentes.has(msgId)) continue;
