@@ -7,6 +7,10 @@ const ALERT_TO = process.env.ALERT_TO || GMAIL_USER;  // p/ quem mandar o alerta
 const SUPA_URL = process.env.SUPA_URL || 'https://zuwdgyvbuaocbzckhhlm.supabase.co';
 const SUPA_ANON = process.env.SUPA_ANON || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const EVOLUTION_URL = process.env.EVOLUTION_URL;
+const EVOLUTION_KEY = process.env.EVOLUTION_KEY;
+const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'CASA RP RESISTENCIAS';
+const ALERT_WHATSAPP = process.env.ALERT_WHATSAPP;
 const SB_H = { apikey: SUPA_ANON, Authorization: 'Bearer ' + SUPA_ANON, 'Content-Type': 'application/json' };
 const KEY_RE = /or[çc]amento|resist[êe]ncia|pre[çc]o|cota[çc][ãa]o|niple|tubular|imers[ãa]o/i;
 
@@ -92,24 +96,27 @@ async function pollInbox() {
   return { ok: true, created, candidatos: vistos };
 }
 
+// Alerta via WhatsApp (Evolution API) — o Railway bloqueia SMTP, então não usamos e-mail aqui.
 async function sendAlert() {
-  if (!ready() || !nodemailer) return { ok: false, msg: 'sem credenciais/deps' };
   const rows = await sbQuotes('select=data&order=created_at.asc');
   const abertos = (rows || []).map(r => r.data).filter(q => q && q.status !== 'APROVADO');
   let texto;
-  if (!abertos.length) texto = 'Nenhum orçamento em aberto no momento. 🎉';
+  if (!abertos.length) texto = '🟢 *Casa RP* — nenhum orçamento em aberto agora. 🎉';
   else {
     abertos.sort((a, b) => new Date(a.date) - new Date(b.date));
-    texto = `Casa RP — ${abertos.length} orçamento(s) em aberto:\n\n` + abertos.map(q => {
+    texto = `📋 *Casa RP — ${abertos.length} orçamento(s) em aberto:*\n\n` + abertos.map(q => {
       const dias = Math.floor((Date.now() - new Date(q.date).getTime()) / 86400000);
       return `• ${(q.client && q.client.name) || '(sem nome)'} — ${(q.client && q.client.phone) || 'sem tel'} — ${q.number} — R$ ${(q.total || 0).toFixed(2)} — ${dias} dia(s)`;
     }).join('\n');
   }
+  if (!(EVOLUTION_URL && EVOLUTION_KEY && ALERT_WHATSAPP)) return { ok: false, msg: 'WhatsApp do alerta não configurado' };
   try {
-    const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, requireTLS: true, auth: { user: GMAIL_USER, pass: GMAIL_PASS }, connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000 });
-    await tx.sendMail({ from: `Casa RP Orçamentos <${GMAIL_USER}>`, to: ALERT_TO, subject: `Casa RP — orçamentos em aberto (${abertos.length})`, text: texto });
-    log('alerta enviado p/', ALERT_TO);
-    return { ok: true, abertos: abertos.length };
+    const r = await fetch(`${EVOLUTION_URL}/message/sendText/${encodeURIComponent(EVOLUTION_INSTANCE)}`, {
+      method: 'POST', headers: { apikey: EVOLUTION_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: ALERT_WHATSAPP, text: texto })
+    });
+    if (r.ok) { log('alerta WhatsApp enviado p/', ALERT_WHATSAPP); return { ok: true, canal: 'whatsapp', abertos: abertos.length }; }
+    log('alerta whatsapp http', r.status); return { ok: false, msg: 'evolution http ' + r.status };
   } catch (e) { log('alerta erro:', e.message); return { ok: false, msg: e.message }; }
 }
 
