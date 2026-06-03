@@ -7,21 +7,32 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '8mb' }));
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const APP_USER = process.env.APP_USER || 'casarp';
-const APP_PASSWORD = process.env.APP_PASSWORD;
-// Token do cookie de sessão (derivado da senha). Só ativa login se APP_PASSWORD existir.
-const AUTH_TOKEN = APP_PASSWORD ? crypto.createHash('sha256').update('rpv1:' + APP_USER + ':' + APP_PASSWORD).digest('hex') : null;
+const SECRET = process.env.RP_SECRET || 'rp-dev-secret-trocar';
+const SUPA_URL = process.env.SUPA_URL || 'https://zuwdgyvbuaocbzckhhlm.supabase.co';
+const SUPA_ANON = process.env.SUPA_ANON || '';
+const SB_H = { apikey: SUPA_ANON, Authorization: 'Bearer ' + SUPA_ANON, 'Content-Type': 'application/json' };
 
-function getCookie(req, name) {
-  const c = req.headers.cookie || '';
-  const m = c.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
-  return m ? decodeURIComponent(m[1]) : '';
-}
+// ---------- Usuários (Supabase rp_users) ----------
+async function sbUsers(qs) { try { const r = await fetch(`${SUPA_URL}/rest/v1/rp_users?${qs}`, { headers: SB_H }); return r.ok ? await r.json() : []; } catch (e) { return []; } }
+async function sbUserInsert(obj) { try { const r = await fetch(`${SUPA_URL}/rest/v1/rp_users`, { method: 'POST', headers: { ...SB_H, Prefer: 'return=representation' }, body: JSON.stringify(obj) }); return r.ok ? (await r.json())[0] : null; } catch (e) { return null; } }
+async function sbUserPatch(id, obj) { try { const r = await fetch(`${SUPA_URL}/rest/v1/rp_users?id=eq.${id}`, { method: 'PATCH', headers: { ...SB_H, Prefer: 'return=representation' }, body: JSON.stringify(obj) }); return r.ok ? (await r.json())[0] : null; } catch (e) { return null; } }
+async function sbUserDelete(id) { try { await fetch(`${SUPA_URL}/rest/v1/rp_users?id=eq.${id}`, { method: 'DELETE', headers: { ...SB_H, Prefer: 'return=minimal' } }); } catch (e) {} }
 
-// Arquivos liberados SEM login — necessários p/ instalar o PWA e mostrar a tela de login.
-function isPublic(p) {
-  return p === '/manifest.json' || p === '/sw.js' || p === '/login' || p === '/api/login' || p === '/api/health' || p.startsWith('/icons/');
+// ---------- Senha (scrypt) e cookie assinado (HMAC) ----------
+function hashPass(p) { const salt = crypto.randomBytes(16).toString('hex'); const h = crypto.scryptSync(String(p), salt, 64).toString('hex'); return `scrypt$${salt}$${h}`; }
+function verifyPass(p, stored) { try { const parts = String(stored).split('$'); const salt = parts[1], h = parts[2]; const calc = crypto.scryptSync(String(p), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(h, 'hex')); } catch (e) { return false; } }
+function clampPct(v, def) { let n = Number(v); if (!isFinite(n)) n = def; return Math.min(20, Math.max(1, Math.round(n))); }
+function sign(obj) { const data = Buffer.from(JSON.stringify(obj)).toString('base64url'); const mac = crypto.createHmac('sha256', SECRET).update(data).digest('base64url'); return data + '.' + mac; }
+function verifyToken(token) {
+  if (!token) return null;
+  const i = token.indexOf('.'); if (i < 0) return null;
+  const data = token.slice(0, i), mac = token.slice(i + 1);
+  const exp = crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
+  try { if (mac.length !== exp.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(exp))) return null; } catch (e) { return null; }
+  try { return JSON.parse(Buffer.from(data, 'base64url').toString()); } catch (e) { return null; }
 }
+function getCookie(req, name) { const c = req.headers.cookie || ''; const m = c.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)')); return m ? decodeURIComponent(m[1]) : ''; }
+function isPublic(p) { return p === '/manifest.json' || p === '/sw.js' || p === '/login' || p === '/api/login' || p === '/api/health' || p.startsWith('/icons/'); }
 
 const LOGIN_HTML = `<!doctype html><html lang="pt-BR"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -59,26 +70,54 @@ f.addEventListener('submit',async e=>{e.preventDefault();err.textContent='';b.di
 });
 </script></body></html>`;
 
-// Gate de login (só se APP_PASSWORD definido). Libera assets do PWA + tela/endpoint de login.
-if (AUTH_TOKEN) {
-  app.use((req, res, next) => {
-    if (isPublic(req.path)) return next();
-    if (getCookie(req, 'rp_auth') === AUTH_TOKEN) return next();
-    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sessão expirada. Faça login de novo.' });
-    return res.redirect('/login');
-  });
-}
+// ---------- Gate de login ----------
+app.use((req, res, next) => {
+  if (isPublic(req.path)) return next();
+  const u = verifyToken(getCookie(req, 'rp_sess'));
+  if (u) { req.user = u; return next(); }
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sessão expirada. Faça login de novo.' });
+  return res.redirect('/login');
+});
 
 app.get('/login', (req, res) => res.type('html').send(LOGIN_HTML));
-app.post('/api/login', (req, res) => {
-  if (!AUTH_TOKEN) return res.json({ ok: true });
-  const u = String((req.body && req.body.user) || '');
+
+app.post('/api/login', async (req, res) => {
+  const u = String((req.body && req.body.user) || '').trim().toLowerCase();
   const p = String((req.body && req.body.pass) || '');
-  if (u === APP_USER && p === APP_PASSWORD) {
-    res.set('Set-Cookie', `rp_auth=${AUTH_TOKEN}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`);
-    return res.json({ ok: true });
-  }
-  return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+  if (!u || !p) return res.status(400).json({ error: 'Informe usuário e senha.' });
+  const rows = await sbUsers(`username=eq.${encodeURIComponent(u)}&limit=1`);
+  const usr = rows[0];
+  if (!usr || usr.active === false || !verifyPass(p, usr.pass)) return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+  const sess = { id: usr.id, u: usr.username, name: usr.name || usr.username, role: usr.role, com: Number(usr.commission_default) || 5 };
+  res.set('Set-Cookie', `rp_sess=${sign(sess)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}`);
+  res.json({ ok: true, user: { u: sess.u, name: sess.name, role: sess.role, com: sess.com } });
+});
+
+app.post('/api/logout', (req, res) => { res.set('Set-Cookie', 'rp_sess=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'); res.json({ ok: true }); });
+app.get('/api/me', (req, res) => res.json({ user: { u: req.user.u, name: req.user.name, role: req.user.role, com: req.user.com || 5 } }));
+
+// ---------- Admin: gestão de usuários ----------
+function requireAdmin(req, res, next) { if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Apenas o admin pode gerenciar usuários.' }); next(); }
+app.get('/api/users', requireAdmin, async (req, res) => { res.json({ users: await sbUsers('select=id,username,name,role,commission_default,active,created_at&order=created_at.asc') }); });
+app.post('/api/users', requireAdmin, async (req, res) => {
+  const b = req.body || {}; const username = String(b.username || '').trim().toLowerCase();
+  if (!username || !b.pass) return res.status(400).json({ error: 'Login e senha são obrigatórios.' });
+  if ((await sbUsers(`username=eq.${encodeURIComponent(username)}&limit=1`))[0]) return res.status(409).json({ error: 'Esse login já existe.' });
+  const row = await sbUserInsert({ username, pass: hashPass(b.pass), name: b.name || username, role: b.role === 'admin' ? 'admin' : 'vendedor', commission_default: clampPct(b.commission_default, 5), active: true });
+  res.json({ ok: !!row });
+});
+app.patch('/api/users/:id', requireAdmin, async (req, res) => {
+  const b = req.body || {}; const upd = {};
+  if (b.name != null) upd.name = String(b.name);
+  if (b.role != null) upd.role = b.role === 'admin' ? 'admin' : 'vendedor';
+  if (b.commission_default != null) upd.commission_default = clampPct(b.commission_default, 5);
+  if (b.active != null) upd.active = !!b.active;
+  if (b.pass) upd.pass = hashPass(b.pass);
+  res.json({ ok: !!(await sbUserPatch(req.params.id, upd)) });
+});
+app.delete('/api/users/:id', requireAdmin, async (req, res) => {
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'Você não pode excluir o próprio usuário.' });
+  await sbUserDelete(req.params.id); res.json({ ok: true });
 });
 
 app.use(express.static(__dirname, { extensions: ['html'] }));
@@ -117,6 +156,6 @@ app.post('/api/ia', async (req, res) => {
   } catch (e) { res.status(503).json({ error: 'Falha ao contatar a IA: ' + e.message }); }
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY, login: !!AUTH_TOKEN }));
+app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.listen(PORT, () => console.log('RP Orçamentos rodando na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY) + ' | Login: ' + (!!AUTH_TOKEN)));
+app.listen(PORT, () => console.log('RP Orçamentos na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY)));
