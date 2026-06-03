@@ -20,7 +20,7 @@
       --shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
-    body { background: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 80px; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; padding-top: env(safe-area-inset-top); padding-bottom: calc(80px + env(safe-area-inset-bottom)); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
     .splash { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; transition: opacity 0.5s; }
     .splash-logo { text-align: center; }
     .splash-logo img { width: 100px; height: 100px; border-radius: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
@@ -57,7 +57,7 @@
     .item-row input:first-child { flex: 2; }
     .item-row input { flex: 1; }
     .modal-actions { display: flex; gap: 10px; margin-top: 10px; }
-    .fab { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; background: #25D366; color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 12px rgba(37,211,102,0.4); text-decoration: none; z-index: 90; }
+    .fab { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 24px; width: 56px; height: 56px; background: #25D366; color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 12px rgba(37,211,102,0.4); text-decoration: none; z-index: 90; }
     #client-search { margin-bottom: 12px; }
   </style>
 </head>
