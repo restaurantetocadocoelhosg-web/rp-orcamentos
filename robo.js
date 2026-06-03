@@ -53,7 +53,7 @@ async function parseEmail(texto) {
   } catch (e) { log('parse erro:', e.message); return null; }
 }
 
-async function criarOrcamento(p, fromText) {
+async function criarOrcamento(p, fromText, msgId) {
   const itens = (p.itens || []).map(it => { const qty = parseInt(it.qty) || 1, price = parseFloat(it.price) || 0; return { desc: String(it.desc || ''), qty, price, total: qty * price }; });
   const total = itens.reduce((s, i) => s + i.total, 0);
   const number = await nextNumber();
@@ -63,7 +63,7 @@ async function criarOrcamento(p, fromText) {
     client: { name: (p.cliente && p.cliente.nome) || fromText || '(via e-mail)', phone: String((p.cliente && p.cliente.telefone) || '').replace(/\D/g, '') },
     items: itens, total, status: 'EM_ANALISE', date: new Date().toISOString(),
     validUntil: new Date(Date.now() + 15 * 86400000).toISOString(),
-    seller: { u: 'robo', name: 'Robô (e-mail)' }, commissionPct: 5, origem: 'email', remetente: fromText || ''
+    seller: { u: 'robo', name: 'Robô (e-mail)' }, commissionPct: 5, origem: 'email', remetente: fromText || '', emailMsgId: msgId || ''
   };
   const ok = await sbInsertQuote({ id, number, data: quote });
   if (ok) log('orçamento criado:', number, quote.client.name);
@@ -72,28 +72,31 @@ async function criarOrcamento(p, fromText) {
 
 async function pollInbox() {
   if (!ready() || !ImapFlow) return { ok: false, created: 0, msg: 'sem credenciais/deps' };
+  // dedup por Message-ID dos orçamentos já criados
+  const existentes = new Set((await sbQuotes('select=data')).map(r => r.data && r.data.emailMsgId).filter(Boolean));
   const client = new ImapFlow({ host: 'imap.gmail.com', port: 993, secure: true, auth: { user: GMAIL_USER, pass: GMAIL_PASS }, logger: false });
-  let created = 0, vistos = 0;
+  let created = 0, candidatos = 0;
   await client.connect();
   try {
     const lock = await client.getMailboxLock('INBOX');
     try {
-      const uids = await client.search({ seen: false }, { uid: true });
-      for (const uid of (uids || []).slice(-40)) {
-        let subj = '';
-        try { const h = await client.fetchOne(uid, { envelope: true }, { uid: true }); subj = (h && h.envelope && h.envelope.subject) || ''; } catch (e) { continue; }
-        if (!KEY_RE.test(subj)) continue;
-        vistos++;
+      // busca do Gmail por palavra-chave (lido ou não, últimos 7 dias) — robusto p/ caixa cheia
+      let uids = [];
+      try { uids = await client.search({ gmraw: 'orcamento OR cotacao OR resistencia OR preco OR niple OR tubular OR imersao newer_than:7d' }, { uid: true }); } catch (e) { log('search erro:', e.message); }
+      candidatos = (uids || []).length;
+      for (const uid of (uids || []).slice(-15)) {
         let parsed; try { const full = await client.fetchOne(uid, { source: true }, { uid: true }); parsed = await simpleParser(full.source); } catch (e) { continue; }
+        const msgId = parsed.messageId || ('uid:' + uid);
+        if (existentes.has(msgId)) continue;
         const fromText = (parsed.from && parsed.from.text) || '';
         const texto = `Assunto: ${parsed.subject || ''}\nDe: ${fromText}\n\n${parsed.text || (parsed.html || '').replace(/<[^>]+>/g, ' ') || ''}`;
         const p = await parseEmail(texto);
-        if (p) { const num = await criarOrcamento(p, fromText); if (num) { created++; try { await client.messageFlagsAdd(uid, ['\\Seen'], { uid: true }); } catch (e) {} } }
+        if (p) { const num = await criarOrcamento(p, fromText, msgId); if (num) { created++; existentes.add(msgId); } }
       }
     } finally { lock.release(); }
   } catch (e) { log('inbox erro:', e.message); } finally { try { await client.logout(); } catch (e) {} }
-  log(`poll: assuntos candidatos=${vistos}, orçamentos criados=${created}`);
-  return { ok: true, created, candidatos: vistos };
+  log(`poll: candidatos=${candidatos}, criados=${created}`);
+  return { ok: true, created, candidatos };
 }
 
 // Alerta via WhatsApp (Evolution API) — o Railway bloqueia SMTP, então não usamos e-mail aqui.
