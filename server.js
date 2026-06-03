@@ -23,7 +23,7 @@ function hashPass(p) { const salt = crypto.randomBytes(16).toString('hex'); cons
 function verifyPass(p, stored) { try { const parts = String(stored).split('$'); const salt = parts[1], h = parts[2]; const calc = crypto.scryptSync(String(p), salt, 64).toString('hex'); return crypto.timingSafeEqual(Buffer.from(calc, 'hex'), Buffer.from(h, 'hex')); } catch (e) { return false; } }
 function clampPct(v, def) { let n = Number(v); if (!isFinite(n)) n = def; return Math.min(20, Math.max(1, Math.round(n))); }
 const PERM_KEYS = ['criar_orcamento', 'editar', 'excluir', 'aprovar', 'ver_comissoes', 'ver_clientes', 'usar_ia', 'ver_todos'];
-const DEFAULT_PERMS = { criar_orcamento: true, editar: true, excluir: false, aprovar: true, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
+const DEFAULT_PERMS = { criar_orcamento: true, editar: false, excluir: false, aprovar: false, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
 function allPerms() { const o = {}; PERM_KEYS.forEach(k => o[k] = true); return o; }
 function effPerms(usr) { if (usr.role === 'admin') return allPerms(); const base = Object.assign({}, DEFAULT_PERMS); const p = usr.perms || {}; PERM_KEYS.forEach(k => { if (k in p) base[k] = !!p[k]; }); return base; }
 function cleanPerms(input) { const o = {}; PERM_KEYS.forEach(k => { o[k] = !!(input && input[k]); }); return o; }
@@ -163,6 +163,26 @@ app.post('/api/ia', async (req, res) => {
     try { let js = t.replace(/^```(json)?/i, '').replace(/```$/, '').trim(); const a = js.indexOf('{'), b = js.lastIndexOf('}'); if (a >= 0 && b > a) js = js.slice(a, b + 1); parsed = JSON.parse(js); } catch (e) {}
     if (!parsed || !Array.isArray(parsed.itens)) return res.status(502).json({ error: 'A IA não retornou no formato esperado. Tente de novo.' });
     res.json({ ok: true, cliente: parsed.cliente || {}, itens: parsed.itens });
+  } catch (e) { res.status(503).json({ error: 'Falha ao contatar a IA: ' + e.message }); }
+});
+
+app.post('/api/assist', async (req, res) => {
+  if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'IA não configurada. Defina ANTHROPIC_API_KEY.' });
+  const pergunta = String((req.body && req.body.pergunta) || '').trim().slice(0, 800);
+  if (!pergunta) return res.status(400).json({ error: 'Faça uma pergunta.' });
+  const dados = (req.body && req.body.dados) || {};
+  const hoje = new Date().toISOString().slice(0, 10);
+  const sys = `Você é o assistente analítico da CASA RP RESISTÊNCIAS. Hoje é ${hoje}. Responda em português do Brasil, OBJETIVO e amigável, com base EXCLUSIVAMENTE nos dados (JSON) fornecidos. Os dados têm "orcamentos" (status EM_ANALISE = em aberto/não fechado; APROVADO = fechou, virou pedido) e "pedidos" (status de fabricação; pago=true quando o cliente pagou; vendedor = quem fez). Datas em ISO (YYYY-MM-DD). "Quem fechou" = orçamentos APROVADO / pedidos. "Em aberto / não fechou" = orçamentos com status diferente de APROVADO. Para listas use marcadores curtos: cliente — nº — R$ valor — data. Some valores e conte quando fizer sentido. Se não houver dados, diga que não encontrou. NÃO invente nada além do JSON.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1200, system: sys, messages: [{ role: 'user', content: `DADOS (JSON):\n${JSON.stringify(dados).slice(0, 80000)}\n\nPERGUNTA: ${pergunta}` }] })
+    });
+    const data = await r.json();
+    if (!r.ok) return res.status(502).json({ error: 'Erro na IA: ' + ((data && data.error && data.error.message) || r.status) });
+    const t = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    res.json({ ok: true, resposta: t || 'Não consegui responder.' });
   } catch (e) { res.status(503).json({ error: 'Falha ao contatar a IA: ' + e.message }); }
 });
 

@@ -76,7 +76,7 @@
       <span id="company-tag">Casa RP Resistências</span>
       <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
         <span id="user-tag" style="font-size:0.78rem; opacity:0.95;"></span>
-        <button onclick="logout()" style="margin:0; width:auto; padding:3px 10px; font-size:0.72rem; background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); border-radius:8px; cursor:pointer;">Sair</button>
+        <button onclick="logout()" style="margin:0; width:auto; padding:5px 14px; font-size:0.8rem; font-weight:600; background:#fff; color:#1B3A6B; border:0; border-radius:8px; cursor:pointer;">🚪 Sair</button>
       </div>
     </header>
     <nav class="tabs">
@@ -85,6 +85,7 @@
       <button class="tab" data-target="clientes" id="tab-clientes">Clientes</button>
       <button class="tab" data-target="cobrancas">Cobranças</button>
       <button class="tab" data-target="comissoes" id="tab-comissoes">Comissões</button>
+      <button class="tab" data-target="assistente" id="tab-assistente">🤖 IA</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
@@ -99,6 +100,7 @@
         <div id="orders-list" class="list"></div>
       </section>
       <section id="clientes" class="panel">
+        <button class="btn-primary" onclick="createClient()" style="margin-bottom:10px;">+ Novo cliente</button>
         <input type="text" id="client-search" placeholder="🔍 Buscar cliente..." oninput="renderClients()">
         <div id="clients-list" class="list"></div>
       </section>
@@ -110,6 +112,18 @@
       <section id="comissoes" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Comissões por vendedor. A comissão entra como "a pagar" quando o pedido é marcado como <b>💵 Recebido</b> (cliente pagou). Admin marca "Pix pago" ao quitar.</div>
         <div id="comissoes-list" class="list"></div>
+      </section>
+      <section id="assistente" class="panel">
+        <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:8px;">🤖 Pergunte sobre seus orçamentos e pedidos. A IA analisa os dados que você vê e responde aqui.</div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="perguntarIASug('Quais clientes fecharam serviço hoje?')">Fechou hoje</button>
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="perguntarIASug('Quais clientes fecharam nos últimos 30 dias e o total?')">Últimos 30 dias</button>
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="perguntarIASug('Quais orçamentos estão em aberto (não fecharam)?')">Não fecharam</button>
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="perguntarIASug('Qual o total em orçamentos em aberto e quantos são?')">Total em aberto</button>
+        </div>
+        <textarea id="assist-input" rows="2" placeholder="Ex: o cliente Renato já confirmou o orçamento? quanto fechei esse mês?" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;"></textarea>
+        <button class="btn-primary" onclick="perguntarIA()">🤖 Perguntar</button>
+        <div id="assist-resp" style="margin-top:12px; white-space:pre-wrap; font-size:0.9rem; background:#FFF8E7; border:1px solid var(--border); border-radius:10px; padding:12px; display:none;"></div>
       </section>
       <section id="adm" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Equipe — crie, edite ou desative os logins dos funcionários (admin vê tudo; vendedor vê só os próprios orçamentos).</div>
@@ -211,7 +225,7 @@
     async function logout() { try { await fetch("api/logout", { method: "POST" }); } catch (e) {} location.replace("login"); }
 
     const PERM_LABELS = { criar_orcamento: "Criar orçamentos", editar: "Editar", excluir: "Excluir", aprovar: "Aprovar orçamentos", ver_comissoes: "Ver comissões", ver_clientes: "Ver clientes", usar_ia: "Usar IA (preencher)", ver_todos: "Ver de todos os vendedores" };
-    const DEFAULT_PERMS_FRONT = { criar_orcamento: true, editar: true, excluir: false, aprovar: true, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
+    const DEFAULT_PERMS_FRONT = { criar_orcamento: true, editar: false, excluir: false, aprovar: false, ver_comissoes: true, ver_clientes: true, usar_ia: true, ver_todos: false };
     function renderPermChecks(perms) {
       perms = (perms && Object.keys(perms).length) ? perms : DEFAULT_PERMS_FRONT;
       document.getElementById("u-perms").innerHTML = Object.keys(PERM_LABELS).map(k => `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" class="perm-chk" data-perm="${k}" ${perms[k] ? "checked" : ""}> ${PERM_LABELS[k]}</label>`).join("");
@@ -309,6 +323,7 @@
       show("btn-novo-orcamento", can("criar_orcamento"));
       show("ia-box", can("usar_ia"));
       show("btn-limpar-prontos", can("excluir"));
+      show("tab-assistente", can("usar_ia"));
     }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
     function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} }
@@ -473,6 +488,7 @@
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','EM_ESTOQUE')">📦 Estoque</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="updateOrderStatus('${o.id}','PRONTO_RETIRADA')">✅ Pronto</button>
           <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="togglePago('${o.id}')">${o.paid ? "↩️ Desf. pago" : "💵 Recebido"}</button>
+          <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="reciboPedido('${o.id}')">🧾 Recibo</button>
           <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="sendWhatsAppOrder('${o.id}')">💬 Cobrar</button>
           ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="excluirPedido('${o.id}')">🗑️ Excluir</button>` : ""}
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum pedido ainda. Aprove um orçamento.</p>';
@@ -488,6 +504,12 @@
           ${can("editar") ? `<button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="editClient('${c.id}')">✏️ Editar</button>` : ""}
           ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteClient('${c.id}')">🗑️ Excluir</button>` : ""}
         </div></div>`).join("") : '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum cliente encontrado.</p>';
+    }
+    async function createClient() {
+      const name = prompt("Nome do cliente:"); if (name === null || !name.trim()) return;
+      const phone = (prompt("WhatsApp (só números, com DDD):") || "").replace(/\D/g, "");
+      const row = { id: crypto.randomUUID(), name: name.trim(), phone };
+      STATE.clients.unshift(row); await sbInsert("rp_clients", row); cacheSave(); renderClients();
     }
     async function editClient(id) {
       const c = STATE.clients.find(x => x.id === id); if (!c) return;
@@ -631,6 +653,24 @@
       await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderComissoes();
     }
 
+    // ===== Assistente IA =====
+    function assistDados() {
+      const orcamentos = STATE.quotes.filter(q => ownsRec(q)).map(q => ({ n: q.number, cliente: (q.client && q.client.name) || "", vendedor: (q.seller && q.seller.name) || "", total: q.total, status: q.status, data: String(q.date || "").slice(0, 10) }));
+      const pedidos = STATE.orders.filter(o => ownsRec(o)).map(o => ({ n: o.number, cliente: (o.client && o.client.name) || "", vendedor: (o.seller && o.seller.name) || "", total: o.total, status: o.status, pago: !!o.paid, dataPago: String(o.paidAt || "").slice(0, 10), comissaoPct: o.commissionPct || 5, data: String(o.createdAt || "").slice(0, 10) }));
+      return { orcamentos, pedidos };
+    }
+    function perguntarIASug(t) { document.getElementById("assist-input").value = t; perguntarIA(); }
+    async function perguntarIA() {
+      const pergunta = document.getElementById("assist-input").value.trim();
+      const box = document.getElementById("assist-resp");
+      if (!pergunta) { alert("Escreva uma pergunta."); return; }
+      box.style.display = "block"; box.textContent = "🤔 Analisando...";
+      try {
+        const { ok, d } = await apiJSON("api/assist", { method: "POST", body: JSON.stringify({ pergunta, dados: assistDados() }) });
+        box.textContent = (ok && d.resposta) ? d.resposta : (d.error || "Não consegui responder agora.");
+      } catch (e) { box.textContent = "Erro de conexão. Tente de novo."; }
+    }
+
     function buildPDF(q) {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -752,6 +792,33 @@
         const file = new File([doc.output("blob")], fname, { type: "application/pdf" });
         if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; }
       } catch (e) { if (e && e.name === "AbortError") return; }
+      doc.save(fname);
+    }
+    // ----- RECIBO de pagamento (após finalizar/receber o pedido) -----
+    function buildRecibo(o) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const W = 210, M = 18, navy = [27, 58, 107];
+      doc.setDrawColor(...navy).setLineWidth(0.8).rect(M, 22, W - 2 * M, 120);
+      doc.setFont("helvetica", "bold").setFontSize(20).setTextColor(...navy).text("RECIBO", M + 8, 38);
+      doc.setFontSize(13).text(`R$ ${o.total.toFixed(2)}`, W - M - 8, 38, { align: "right" });
+      doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(40, 40, 40).text(COMPANY.razao, M + 8, 48);
+      doc.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(90, 90, 90).text(`CNPJ ${COMPANY.cnpj}  ·  ${COMPANY.address}`, M + 8, 53);
+      doc.setDrawColor(200, 200, 200).line(M + 8, 58, W - M - 8, 58);
+      doc.setFont("helvetica", "normal").setFontSize(11).setTextColor(30, 30, 30);
+      const txt = `Recebemos de ${o.client.name || "cliente"} a importância de R$ ${o.total.toFixed(2)}, referente ao pedido ${o.number} (fornecimento/serviço de resistências e materiais elétricos), pago via Pix. Para clareza, firmamos o presente recibo.`;
+      doc.text(doc.splitTextToSize(txt, W - 2 * M - 16), M + 8, 70);
+      const dt = new Date(o.paidAt || Date.now()).toLocaleDateString("pt-BR");
+      doc.text(`Niterói/RJ, ${dt}.`, M + 8, 108);
+      doc.setDrawColor(120, 120, 120).setLineWidth(0.4).line(W / 2 - 35, 128, W / 2 + 35, 128);
+      doc.setFontSize(9).setTextColor(80, 80, 80).text(COMPANY.razao, W / 2, 133, { align: "center" });
+      return doc;
+    }
+    async function reciboPedido(id) {
+      const o = STATE.orders.find(x => x.id === id); if (!o) return;
+      const fname = `Recibo ${o.number} - ${String(o.client.name || "").replace(/[\\/:*?"<>|]+/g, "")}.pdf`;
+      const doc = buildRecibo(o);
+      try { const file = new File([doc.output("blob")], fname, { type: "application/pdf" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
       doc.save(fname);
     }
 
