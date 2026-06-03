@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const robo = require('./robo');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -186,6 +187,9 @@ app.post('/api/assist', async (req, res) => {
   } catch (e) { res.status(503).json({ error: 'Falha ao contatar a IA: ' + e.message }); }
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY }));
+// Robô de e-mail: rodar manualmente (admin) para testar sem esperar o horário
+app.post('/api/robo-run', requireAdmin, async (req, res) => { try { res.json(await robo.runOnce()); } catch (e) { res.status(500).json({ error: e.message }); } });
+
+app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY, robo: robo.ready() }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.listen(PORT, () => console.log('RP Orçamentos na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY)));
+app.listen(PORT, () => { console.log('RP Orçamentos na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY)); try { robo.init(); } catch (e) { console.log('robo init erro', e.message); } });

@@ -11,6 +11,10 @@
     "node": ">=18"
   },
   "dependencies": {
-    "express": "^4.22.2"
+    "express": "^4.22.2",
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.1",
+    "nodemailer": "^6.9.14",
+    "node-cron": "^3.0.3"
   }
 }
