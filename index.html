@@ -74,12 +74,17 @@
     <header class="header">
       <h2>📋 Orçamentos & Pedidos</h2>
       <span id="company-tag">Casa RP Resistências</span>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
+        <span id="user-tag" style="font-size:0.78rem; opacity:0.95;"></span>
+        <button onclick="logout()" style="margin:0; width:auto; padding:3px 10px; font-size:0.72rem; background:rgba(255,255,255,0.2); color:#fff; border:1px solid rgba(255,255,255,0.4); border-radius:8px; cursor:pointer;">Sair</button>
+      </div>
     </header>
     <nav class="tabs">
       <button class="tab active" data-target="orcamentos">Orçamentos</button>
       <button class="tab" data-target="pedidos">Pedidos</button>
       <button class="tab" data-target="clientes">Clientes</button>
       <button class="tab" data-target="cobrancas">Cobranças</button>
+      <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
       <section id="orcamentos" class="panel active">
@@ -98,6 +103,11 @@
       <section id="cobrancas" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Orçamentos ainda não aprovados — cobre pelo WhatsApp. ⏰ a partir de 7 dias · ⚠️ vencidos (15 dias).</div>
         <div id="cobr-list" class="list"></div>
+      </section>
+      <section id="adm" class="panel">
+        <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Equipe — crie, edite ou desative os logins dos funcionários (admin vê tudo; vendedor vê só os próprios orçamentos).</div>
+        <button class="btn-primary" onclick="openUserModal()">+ Novo usuário</button>
+        <div id="users-list" class="list" style="margin-top:12px;"></div>
       </section>
     </main>
     <a id="fab-whatsapp" class="fab" href="#" target="_blank">💬</a>
@@ -131,6 +141,29 @@
     </div>
   </div>
 
+  <div id="user-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="user-modal-title">Novo usuário</h3>
+      <form id="user-form">
+        <input type="text" id="u-name" placeholder="Nome do funcionário" required>
+        <input type="text" id="u-login" placeholder="Login (sem espaços, ex: renato)" autocapitalize="none" autocomplete="off" required>
+        <input type="text" id="u-pass" placeholder="Senha" autocomplete="off">
+        <small id="u-pass-hint" style="color:var(--secondary); display:block; margin:-6px 0 10px;"></small>
+        <label style="font-size:0.85rem; color:var(--secondary);">Função</label>
+        <select id="u-role" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px;">
+          <option value="vendedor">Vendedor (vê só os próprios orçamentos)</option>
+          <option value="admin">Admin (vê tudo + gerencia equipe)</option>
+        </select>
+        <label style="font-size:0.85rem; color:var(--secondary);">Comissão padrão: <b id="u-com-val">5</b>%</label>
+        <input type="range" id="u-com" min="1" max="20" value="5" style="width:100%; margin-bottom:12px;" oninput="document.getElementById('u-com-val').textContent=this.value">
+        <div class="modal-actions">
+          <button type="button" class="btn-danger" onclick="closeUserModal()">Cancelar</button>
+          <button type="submit" class="btn-success">💾 Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
     const COMPANY = {
       name: "CASA RP RESISTÊNCIAS", razao: "RUBENS R C P DA SILVA RESISTENCIAS",
@@ -146,6 +179,85 @@
     const SB_H = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json" };
     let STATE = { quotes: [], orders: [], clients: [] };
     let editingQuoteId = null;
+    let CURRENT_USER = null;
+    let editingUserId = null;
+
+    // ===== Usuário logado + Aba ADM (equipe) =====
+    async function apiJSON(url, opts) { const r = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, opts)); let d = {}; try { d = await r.json(); } catch (e) {} return { ok: r.ok, status: r.status, d }; }
+    async function loadMe() {
+      try {
+        const { ok, d } = await apiJSON("api/me");
+        if (ok && d.user) {
+          CURRENT_USER = d.user;
+          document.getElementById("user-tag").textContent = `👤 ${d.user.name}${d.user.role === "admin" ? " (admin)" : ""}`;
+          document.getElementById("tab-adm").style.display = d.user.role === "admin" ? "" : "none";
+        }
+      } catch (e) {}
+    }
+    async function logout() { try { await fetch("api/logout", { method: "POST" }); } catch (e) {} location.replace("login"); }
+
+    async function renderAdmin() {
+      const list = document.getElementById("users-list");
+      list.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:14px;">Carregando…</p>';
+      const { ok, d } = await apiJSON("api/users");
+      if (!ok) { list.innerHTML = '<p style="text-align:center;color:var(--danger);padding:14px;">Sem permissão ou erro ao carregar.</p>'; return; }
+      const users = d.users || [];
+      list.innerHTML = users.map(u => `
+        <div class="card" style="${u.active ? "" : "opacity:0.55;"}">
+          <h4>${u.name || u.username} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">· @${u.username} · ${u.role === "admin" ? "👑 admin" : "vendedor"}</span></h4>
+          <p>💸 Comissão padrão: ${u.commission_default}% ${u.active ? "" : "· ⛔ inativo"}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+            <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick='editUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>✏️ Editar</button>
+            <button class="btn-secondary" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="toggleUser('${u.id}', ${u.active ? "false" : "true"})">${u.active ? "🚫 Desativar" : "✅ Ativar"}</button>
+            <button class="btn-danger" style="width:auto; padding:6px 10px; font-size:0.8rem;" onclick="deleteUser('${u.id}','${(u.name || u.username).replace(/'/g, "")}')">🗑️ Excluir</button>
+          </div>
+        </div>`).join("") || '<p style="text-align:center;color:var(--secondary);padding:14px;">Nenhum usuário.</p>';
+    }
+    function openUserModal() {
+      editingUserId = null;
+      document.getElementById("user-modal-title").textContent = "Novo usuário";
+      document.getElementById("u-name").value = ""; document.getElementById("u-login").value = "";
+      document.getElementById("u-login").disabled = false;
+      document.getElementById("u-pass").value = ""; document.getElementById("u-pass").placeholder = "Senha";
+      document.getElementById("u-pass-hint").textContent = "";
+      document.getElementById("u-role").value = "vendedor";
+      document.getElementById("u-com").value = 5; document.getElementById("u-com-val").textContent = "5";
+      document.getElementById("user-modal").classList.remove("hidden");
+    }
+    function editUser(u) {
+      editingUserId = u.id;
+      document.getElementById("user-modal-title").textContent = `Editar @${u.username}`;
+      document.getElementById("u-name").value = u.name || "";
+      document.getElementById("u-login").value = u.username; document.getElementById("u-login").disabled = true;
+      document.getElementById("u-pass").value = ""; document.getElementById("u-pass").placeholder = "Nova senha (deixe vazio p/ manter)";
+      document.getElementById("u-pass-hint").textContent = "Em branco = mantém a senha atual.";
+      document.getElementById("u-role").value = u.role === "admin" ? "admin" : "vendedor";
+      document.getElementById("u-com").value = u.commission_default || 5; document.getElementById("u-com-val").textContent = String(u.commission_default || 5);
+      document.getElementById("user-modal").classList.remove("hidden");
+    }
+    function closeUserModal() { document.getElementById("user-modal").classList.add("hidden"); document.getElementById("u-login").disabled = false; }
+    async function toggleUser(id, active) { await apiJSON(`api/users/${id}`, { method: "PATCH", body: JSON.stringify({ active: active }) }); renderAdmin(); }
+    async function deleteUser(id, nome) { if (!confirm(`Excluir o usuário ${nome}? Não dá pra desfazer.`)) return; const { ok, d } = await apiJSON(`api/users/${id}`, { method: "DELETE" }); if (!ok) alert(d.error || "Não foi possível excluir."); renderAdmin(); }
+    document.getElementById("user-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = {
+        name: document.getElementById("u-name").value.trim(),
+        role: document.getElementById("u-role").value,
+        commission_default: parseInt(document.getElementById("u-com").value) || 5
+      };
+      const pass = document.getElementById("u-pass").value;
+      if (pass) body.pass = pass;
+      let res;
+      if (editingUserId) {
+        res = await apiJSON(`api/users/${editingUserId}`, { method: "PATCH", body: JSON.stringify(body) });
+      } else {
+        body.username = document.getElementById("u-login").value.trim().toLowerCase();
+        if (!body.username || !pass) { alert("Login e senha são obrigatórios para um novo usuário."); return; }
+        res = await apiJSON("api/users", { method: "POST", body: JSON.stringify(body) });
+      }
+      if (res.ok && res.d.ok) { closeUserModal(); renderAdmin(); }
+      else alert(res.d.error || "Erro ao salvar usuário.");
+    });
     async function sbSelect(table, q) { try { const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${q || ""}`, { headers: SB_H }); return r.ok ? await r.json() : []; } catch (e) { return null; } }
     async function sbInsert(table, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}`, { method: "POST", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
     async function sbPatch(table, col, val, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "PATCH", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
@@ -179,7 +291,7 @@
           document.getElementById("app").classList.remove("hidden");
         }, 500);
       }, 2000);
-      initTabs(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); updateFab(); loadAll();
+      initTabs(); loadMe(); cacheLoad(); renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); updateFab(); loadAll();
     });
 
     function initTabs() {
@@ -189,6 +301,7 @@
           document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
           btn.classList.add("active");
           document.getElementById(btn.dataset.target).classList.add("active");
+          if (btn.dataset.target === "adm") renderAdmin();
         });
       });
     }
