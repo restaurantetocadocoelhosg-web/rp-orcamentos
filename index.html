@@ -88,6 +88,7 @@
       <button class="tab" data-target="comissoes" id="tab-comissoes">Comissões</button>
       <button class="tab" data-target="assistente" id="tab-assistente">🤖 IA</button>
       <button class="tab" data-target="produtos" id="tab-produtos">📦 Produtos</button>
+      <button class="tab" data-target="estoque" id="tab-estoque">📊 Estoque</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
@@ -138,6 +139,15 @@
         <button class="btn-primary" onclick="openUserModal()">+ Novo usuário</button>
         <div id="users-list" class="list" style="margin-top:12px;"></div>
       </section>
+      <section id="estoque" class="panel">
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+          <button class="btn-primary" style="flex:1;" onclick="openStockModal()">📥 Entrada / 📤 Saída</button>
+          <button class="btn-secondary" style="flex:1;" onclick="renderEstoque('baixo')">⚠️ Estoque Baixo</button>
+        </div>
+        <div id="estoque-alertas"></div>
+        <div style="font-size:0.85rem; font-weight:600; color:var(--primary); margin:10px 0 6px;">📋 Últimos movimentos</div>
+        <div id="estoque-moves" class="list"></div>
+      </section>
       <section id="produtos" class="panel">
         <button class="btn-primary" onclick="openProductModal()">+ Novo Produto</button>
         <input type="text" id="product-search" placeholder="🔍 Buscar produto por nome ou código..." oninput="renderProducts()" style="margin-top:10px;">
@@ -146,6 +156,33 @@
       </section>
     </main>
     <a id="fab-whatsapp" class="fab" href="#" target="_blank">💬</a>
+  </div>
+
+  <div id="stock-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="stock-modal-title">Movimentação de Estoque</h3>
+      <form id="stock-form">
+        <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;">Produto</label>
+        <input type="text" id="sm-prod-search" placeholder="🔍 Digite para buscar produto..." autocomplete="off" oninput="searchProdForStock(this.value)">
+        <div id="sm-prod-results" style="background:#fff; border:1px solid var(--border); border-radius:8px; max-height:160px; overflow-y:auto; display:none; margin-top:-8px; margin-bottom:10px;"></div>
+        <input type="hidden" id="sm-prod-id">
+        <div id="sm-prod-selected" style="font-size:0.88rem; font-weight:600; color:var(--primary); padding:8px; background:#FFF8E7; border-radius:8px; margin-bottom:10px; display:none;"></div>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;">Tipo de movimento</label>
+        <select id="sm-tipo" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px;" onchange="updateStockTipo()">
+          <option value="entrada">📥 Entrada (compra, fabricação, devolução)</option>
+          <option value="saida">📤 Saída (venda avulsa, perda, consumo)</option>
+          <option value="ajuste">🔧 Ajuste (contagem física, correção)</option>
+        </select>
+        <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;" id="sm-qty-label">Quantidade</label>
+        <input type="number" id="sm-quantidade" placeholder="Quantidade" step="0.01" min="0.01" required>
+        <div id="sm-estoque-atual" style="font-size:0.82rem; color:var(--secondary); margin:-6px 0 10px;"></div>
+        <input type="text" id="sm-motivo" placeholder="Motivo (opcional, ex: Compra fornecedor, Venda cliente João)">
+        <div class="modal-actions">
+          <button type="button" class="btn-danger" onclick="closeStockModal()">Cancelar</button>
+          <button type="submit" class="btn-success" id="sm-btn-salvar">💾 Registrar</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <datalist id="prod-datalist"></datalist>
@@ -426,6 +463,7 @@
           if (btn.dataset.target === "comissoes") renderComissoes();
           if (btn.dataset.target === "servicos") renderServices();
           if (btn.dataset.target === "produtos") renderProducts();
+          if (btn.dataset.target === "estoque") renderEstoque();
         });
       });
     }
@@ -1014,6 +1052,128 @@
       doc.save(fname);
     }
 
+    // ===== Estoque =====
+    let stockSelectedProd = null;
+    async function renderEstoque(filtro) {
+      const alertas = document.getElementById("estoque-alertas");
+      const moves = document.getElementById("estoque-moves");
+      if (!alertas || !moves) return;
+
+      if (filtro === "baixo") {
+        alertas.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:10px;">Buscando…</p>';
+        const rows = await sbSelect("rp_products", "select=id,codigo,nome,estoque_atual,estoque_minimo,unidade&ativo=eq.true&order=nome.asc&limit=200") || [];
+        const baixo = rows.filter(p => (p.estoque_atual || 0) <= (p.estoque_minimo || 0) && (p.estoque_minimo || 0) > 0);
+        if (!baixo.length) { alertas.innerHTML = '<div style="background:#D4EDDA; color:#155724; padding:12px; border-radius:10px; margin-bottom:10px; font-size:0.88rem;">✅ Nenhum produto abaixo do estoque mínimo!</div>'; }
+        else {
+          alertas.innerHTML = `<div style="background:#FFF3CD; color:#856404; padding:10px 12px; border-radius:10px; margin-bottom:10px; font-size:0.88rem; font-weight:600;">⚠️ ${baixo.length} produto(s) abaixo do mínimo</div>` +
+            baixo.map(p => `<div class="card" style="border-left-color:var(--danger);">
+              <h4>${(p.nome||"").replace(/</g,"&lt;")} ${p.codigo ? `<span style="font-weight:400;color:var(--secondary);font-size:0.8rem;">· ${p.codigo}</span>` : ""}</h4>
+              <p>📦 Atual: <b style="color:var(--danger);">${p.estoque_atual || 0} ${p.unidade||"UN"}</b> · Mínimo: ${p.estoque_minimo} ${p.unidade||"UN"}</p>
+              <button class="btn-success" style="width:auto; padding:5px 10px; font-size:0.8rem; margin-top:6px;" onclick="openStockModal('${p.id}','entrada')">📥 Registrar Entrada</button>
+            </div>`).join("");
+        }
+      } else {
+        alertas.innerHTML = "";
+      }
+
+      moves.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:10px;">Carregando…</p>';
+      const recentes = await sbSelect("rp_stock_moves", "select=*&order=created_at.desc&limit=50") || [];
+      if (!recentes.length) { moves.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:20px;">Nenhum movimento ainda.</p>'; return; }
+      moves.innerHTML = recentes.map(m => {
+        const cor = m.tipo === "entrada" ? "var(--success)" : m.tipo === "saida" ? "var(--danger)" : "var(--secondary)";
+        const icon = m.tipo === "entrada" ? "📥" : m.tipo === "saida" ? "📤" : "🔧";
+        const dt = new Date(m.created_at).toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+        return `<div class="card" style="border-left-color:${cor}; padding:10px 14px;">
+          <h4 style="font-size:0.9rem;">${icon} ${(m.product_nome||"").replace(/</g,"&lt;")} <span style="font-weight:400; color:var(--secondary); font-size:0.78rem;">· ${m.tipo}</span></h4>
+          <p>Qtd: <b style="color:${cor};">${m.tipo==="saida"?"-":"+"} ${m.quantidade} ${""}</b> · Antes: ${m.estoque_antes} → Depois: <b>${m.estoque_depois}</b>${m.motivo ? " · " + m.motivo : ""}</p>
+          <p style="font-size:0.75rem; color:var(--secondary);">📅 ${dt}${m.user_name ? " · 👤 " + m.user_name : ""}</p>
+        </div>`;
+      }).join("");
+    }
+
+    let smSearchTimer = null;
+    async function searchProdForStock(q) {
+      const res = document.getElementById("sm-prod-results");
+      if (!q || q.length < 2) { res.style.display = "none"; return; }
+      clearTimeout(smSearchTimer);
+      smSearchTimer = setTimeout(async () => {
+        const s = encodeURIComponent(q);
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=10`) || [];
+        if (!rows.length) { res.style.display = "none"; return; }
+        res.style.display = "block";
+        res.innerHTML = rows.map(p => `<div onclick="selectStockProd(${JSON.stringify(p).replace(/'/g,"&#39;")})" style="padding:8px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee;" onmouseover="this.style.background='#FFF8E7'" onmouseout="this.style.background=''">
+          <b>${(p.nome||"").replace(/</g,"&lt;")}</b>${p.codigo ? " · " + p.codigo : ""} <span style="color:var(--secondary);">· Estoque: ${p.estoque_atual||0} ${p.unidade||"UN"}</span>
+        </div>`).join("");
+      }, 300);
+    }
+    function selectStockProd(p) {
+      stockSelectedProd = p;
+      document.getElementById("sm-prod-id").value = p.id;
+      document.getElementById("sm-prod-search").value = "";
+      document.getElementById("sm-prod-results").style.display = "none";
+      const sel = document.getElementById("sm-prod-selected");
+      sel.style.display = "block";
+      sel.innerHTML = `📦 <b>${(p.nome||"").replace(/</g,"&lt;")}</b>${p.codigo ? " · " + p.codigo : ""} <span style="color:var(--secondary);">— Estoque atual: <b>${p.estoque_atual||0} ${p.unidade||"UN"}</b></span> <span onclick="clearStockProd()" style="float:right; cursor:pointer; color:var(--danger);">✕</span>`;
+      document.getElementById("sm-estoque-atual").textContent = `Estoque atual: ${p.estoque_atual||0} ${p.unidade||"UN"}`;
+    }
+    function clearStockProd() {
+      stockSelectedProd = null;
+      document.getElementById("sm-prod-id").value = "";
+      document.getElementById("sm-prod-selected").style.display = "none";
+      document.getElementById("sm-estoque-atual").textContent = "";
+    }
+    function openStockModal(prodId, tipo) {
+      stockSelectedProd = null;
+      document.getElementById("stock-form").reset();
+      document.getElementById("sm-prod-results").style.display = "none";
+      document.getElementById("sm-prod-selected").style.display = "none";
+      document.getElementById("sm-estoque-atual").textContent = "";
+      if (prodId) {
+        const p = STATE.products.find(x => x.id === prodId);
+        if (p) { selectStockProd({ ...p, estoque_atual: p.estoque_atual || 0 }); }
+        else {
+          sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&id=eq.${prodId}`).then(rows => { if (rows && rows[0]) selectStockProd(rows[0]); });
+        }
+      }
+      if (tipo) document.getElementById("sm-tipo").value = tipo;
+      updateStockTipo();
+      document.getElementById("stock-modal").classList.remove("hidden");
+    }
+    function updateStockTipo() {
+      const tipo = document.getElementById("sm-tipo").value;
+      const lbl = document.getElementById("sm-qty-label");
+      const btn = document.getElementById("sm-btn-salvar");
+      if (tipo === "entrada") { lbl.textContent = "Quantidade a entrar"; btn.textContent = "📥 Confirmar Entrada"; btn.style.background = "var(--success)"; }
+      else if (tipo === "saida") { lbl.textContent = "Quantidade a sair"; btn.textContent = "📤 Confirmar Saída"; btn.style.background = "var(--danger)"; }
+      else { lbl.textContent = "Novo estoque (valor final)"; btn.textContent = "🔧 Confirmar Ajuste"; btn.style.background = "var(--secondary)"; }
+    }
+    function closeStockModal() { document.getElementById("stock-modal").classList.add("hidden"); stockSelectedProd = null; }
+    document.getElementById("stock-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const prodId = document.getElementById("sm-prod-id").value;
+      if (!prodId) { alert("Selecione um produto."); return; }
+      const tipo = document.getElementById("sm-tipo").value;
+      const qtd = parseFloat(document.getElementById("sm-quantidade").value) || 0;
+      if (qtd <= 0) { alert("Quantidade deve ser maior que zero."); return; }
+      const motivo = document.getElementById("sm-motivo").value.trim();
+      const prod = stockSelectedProd || {};
+      const estoqueAntes = parseFloat(prod.estoque_atual) || 0;
+      let estoqueDepois;
+      if (tipo === "entrada") estoqueDepois = estoqueAntes + qtd;
+      else if (tipo === "saida") estoqueDepois = Math.max(0, estoqueAntes - qtd);
+      else estoqueDepois = qtd;
+
+      const move = { product_id: prodId, product_nome: prod.nome || "", tipo, quantidade: qtd, estoque_antes: estoqueAntes, estoque_depois: estoqueDepois, motivo: motivo || null, user_name: CURRENT_USER ? CURRENT_USER.name : null };
+      await sbInsert("rp_stock_moves", move);
+      await sbPatch("rp_products", "id", prodId, { estoque_atual: estoqueDepois });
+      const idx = STATE.products.findIndex(x => x.id === prodId);
+      if (idx >= 0) STATE.products[idx].estoque_atual = estoqueDepois;
+      closeStockModal();
+      alert(`✅ Movimento registrado! Estoque de "${prod.nome}": ${estoqueAntes} → ${estoqueDepois}`);
+      const painel = document.getElementById("estoque"); if (painel && painel.classList.contains("active")) renderEstoque();
+      renderProducts();
+    });
+
     // ===== Produtos =====
     async function renderProducts() {
       const list = document.getElementById("products-list"); if (!list) return;
@@ -1038,6 +1198,8 @@
           <p>💰 Venda: <b>R$ ${(p.preco_venda || 0).toFixed(2)}</b> · Custo: R$ ${(p.preco_custo || 0).toFixed(2)}</p>
           <p>📦 Estoque: ${p.estoque_atual || 0} ${p.unidade || "UN"} · NCM: ${p.ncm || "—"} ${p.ativo === false ? "· ⛔ inativo" : ""}</p>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+            <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="openStockModal('${p.id}','entrada')">📥 Entrada</button>
+            <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; background:#FFF3CD; color:#856404;" onclick="openStockModal('${p.id}','saida')">📤 Saída</button>
             <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="openProductModal('${p.id}')">✏️ Editar</button>
             ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteProduct('${p.id}')">🗑️ Excluir</button>` : ""}
           </div>
