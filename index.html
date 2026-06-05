@@ -87,6 +87,7 @@
       <button class="tab" data-target="cobrancas">Cobranças</button>
       <button class="tab" data-target="comissoes" id="tab-comissoes">Comissões</button>
       <button class="tab" data-target="assistente" id="tab-assistente">🤖 IA</button>
+      <button class="tab" data-target="pdv" id="tab-pdv">🛒 PDV</button>
       <button class="tab" data-target="produtos" id="tab-produtos">📦 Produtos</button>
       <button class="tab" data-target="estoque" id="tab-estoque">📊 Estoque</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
@@ -139,6 +140,69 @@
         <button class="btn-primary" onclick="openUserModal()">+ Novo usuário</button>
         <div id="users-list" class="list" style="margin-top:12px;"></div>
       </section>
+      <section id="pdv" class="panel">
+        <!-- Caixa fechado -->
+        <div id="pdv-fechado">
+          <div style="text-align:center; padding:24px 16px;">
+            <div style="font-size:2.5rem; margin-bottom:8px;">🏪</div>
+            <h3 style="color:var(--primary); margin-bottom:8px;">Caixa Fechado</h3>
+            <p style="font-size:0.88rem; color:var(--secondary); margin-bottom:16px;">Abra o caixa para iniciar as vendas.</p>
+            <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:6px;">Valor inicial em caixa (R$):</label>
+            <input type="number" id="pdv-abertura" placeholder="0,00" step="0.01" min="0" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:12px; font-size:1rem;">
+            <button class="btn-success" onclick="abrirCaixa()" style="font-size:1rem;">🔓 Abrir Caixa</button>
+          </div>
+        </div>
+        <!-- Caixa aberto -->
+        <div id="pdv-aberto" class="hidden">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span style="font-size:0.82rem; color:var(--success); font-weight:600;">🟢 Caixa Aberto</span>
+            <button class="btn-secondary" style="width:auto; padding:5px 10px; font-size:0.78rem;" onclick="fecharCaixa()">🔒 Fechar Caixa</button>
+          </div>
+          <div style="position:relative; margin-bottom:10px;">
+            <input type="text" id="pdv-search" placeholder="🔍 Buscar produto para vender..." autocomplete="off" oninput="pdvSearch(this.value)" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px;">
+            <div id="pdv-results" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:0 0 10px 10px; max-height:220px; overflow-y:auto; z-index:50; display:none; box-shadow:var(--shadow);"></div>
+          </div>
+          <div id="pdv-cart-wrap" style="display:none;">
+            <div style="font-size:0.82rem; font-weight:600; color:var(--primary); margin-bottom:6px;">🛒 Carrinho</div>
+            <div id="pdv-cart"></div>
+            <div style="background:var(--card); border-radius:10px; padding:12px; margin-top:8px; box-shadow:var(--shadow);">
+              <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                <span style="font-size:0.88rem;">Subtotal:</span>
+                <span id="pdv-subtotal" style="font-weight:600;">R$ 0,00</span>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-size:0.88rem;">Desconto:</span>
+                <div style="display:flex; gap:4px;">
+                  <input type="number" id="pdv-desconto" placeholder="0" step="0.01" min="0" style="width:80px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:0.85rem;" oninput="renderPdvTotals()">
+                  <select id="pdv-desc-tipo" style="padding:6px; border:1px solid var(--border); border-radius:6px; font-size:0.82rem;" onchange="renderPdvTotals()">
+                    <option value="R$">R$</option>
+                    <option value="%">%</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; border-top:2px solid var(--primary); padding-top:8px;">
+                <span style="font-size:1.05rem; font-weight:700; color:var(--primary);">TOTAL:</span>
+                <span id="pdv-total" style="font-size:1.2rem; font-weight:700; color:var(--primary);">R$ 0,00</span>
+              </div>
+            </div>
+            <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <button class="btn-success" onclick="pdvPagar('pix')" style="margin:0;">💳 Pix</button>
+              <button class="btn-success" onclick="pdvPagar('dinheiro')" style="margin:0;">💵 Dinheiro</button>
+              <button class="btn-success" onclick="pdvPagar('cartao_credito')" style="margin:0; font-size:0.85rem;">💳 Crédito</button>
+              <button class="btn-success" onclick="pdvPagar('cartao_debito')" style="margin:0; font-size:0.85rem;">💳 Débito</button>
+            </div>
+            <button class="btn-danger" onclick="pdvLimpar()" style="margin-top:8px; font-size:0.85rem;">🗑️ Limpar carrinho</button>
+          </div>
+          <div style="margin-top:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-size:0.85rem; font-weight:600; color:var(--primary);">📈 Vendas de hoje</span>
+              <button class="btn-secondary" style="width:auto; padding:4px 8px; font-size:0.75rem;" onclick="renderPdvHistorico()">🔄</button>
+            </div>
+            <div id="pdv-hoje-resumo"></div>
+            <div id="pdv-vendas-list" class="list"></div>
+          </div>
+        </div>
+      </section>
       <section id="estoque" class="panel">
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
           <button class="btn-primary" style="flex:1;" onclick="openStockModal()">📥 Entrada / 📤 Saída</button>
@@ -156,6 +220,24 @@
       </section>
     </main>
     <a id="fab-whatsapp" class="fab" href="#" target="_blank">💬</a>
+  </div>
+
+  <div id="pdv-pay-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="pdv-pay-title">Pagamento</h3>
+      <div id="pdv-pay-total-display" style="text-align:center; font-size:1.6rem; font-weight:700; color:var(--primary); margin:12px 0 16px; padding:10px; background:#FFF8E7; border-radius:10px;"></div>
+      <input type="text" id="pdv-pay-cliente" placeholder="Nome do cliente (opcional)">
+      <div id="pdv-pay-dinheiro-box" class="hidden">
+        <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:6px;">Valor recebido (R$):</label>
+        <input type="number" id="pdv-pay-recebido" placeholder="0,00" step="0.01" min="0" oninput="pdvCalcTroco()" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; font-size:1.1rem;">
+        <div id="pdv-pay-troco" style="font-size:1rem; font-weight:600; text-align:center; padding:10px; border-radius:8px; margin-bottom:10px;"></div>
+      </div>
+      <div id="pdv-pay-outro-box" style="text-align:center; padding:8px 0 12px; font-size:0.9rem; color:var(--secondary);">Confirme o recebimento do pagamento.</div>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" onclick="closePdvPayModal()">Cancelar</button>
+        <button type="button" class="btn-success" id="pdv-pay-btn" onclick="pdvConfirmarPagamento()">✅ Confirmar Venda</button>
+      </div>
+    </div>
   </div>
 
   <div id="stock-modal" class="modal hidden">
@@ -462,6 +544,7 @@
           if (btn.dataset.target === "adm") renderAdmin();
           if (btn.dataset.target === "comissoes") renderComissoes();
           if (btn.dataset.target === "servicos") renderServices();
+          if (btn.dataset.target === "pdv") renderPdvStatus();
           if (btn.dataset.target === "produtos") renderProducts();
           if (btn.dataset.target === "estoque") renderEstoque();
         });
@@ -1049,6 +1132,272 @@
       const fname = `Recibo ${o.number} - ${String(o.client.name || "").replace(/[\\/:*?"<>|]+/g, "")}.pdf`;
       const doc = buildRecibo(o);
       try { const file = new File([doc.output("blob")], fname, { type: "application/pdf" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+      doc.save(fname);
+    }
+
+    // ===== PDV =====
+    let PDV_CART = [];
+    let PDV_CAIXA_ID = null;
+    let PDV_PAY_TIPO = null;
+    let pdvSearchTimer = null;
+    let pdvSearchCache = [];
+    let PDV_VENDAS_CACHE = [];
+
+    async function renderPdvStatus() {
+      PDV_CAIXA_ID = localStorage.getItem("rp_caixa_id");
+      if (PDV_CAIXA_ID) {
+        const rows = await sbSelect("rp_caixa", `select=id,status&id=eq.${PDV_CAIXA_ID}&status=eq.aberto`) || [];
+        if (!rows.length) { PDV_CAIXA_ID = null; localStorage.removeItem("rp_caixa_id"); }
+      }
+      const fechado = document.getElementById("pdv-fechado");
+      const aberto = document.getElementById("pdv-aberto");
+      fechado.classList.toggle("hidden", !!PDV_CAIXA_ID);
+      aberto.classList.toggle("hidden", !PDV_CAIXA_ID);
+      if (PDV_CAIXA_ID) renderPdvHistorico();
+    }
+
+    async function abrirCaixa() {
+      const val = parseFloat(document.getElementById("pdv-abertura").value) || 0;
+      const id = crypto.randomUUID();
+      await sbInsert("rp_caixa", { id, valor_abertura: val, status: "aberto", user_name: CURRENT_USER ? CURRENT_USER.name : null });
+      PDV_CAIXA_ID = id;
+      localStorage.setItem("rp_caixa_id", id);
+      renderPdvStatus();
+    }
+
+    async function fecharCaixa() {
+      if (!confirm("Fechar o caixa agora?")) return;
+      const vendas = await sbSelect("rp_pdv_vendas", `select=total_final&caixa_id=eq.${PDV_CAIXA_ID}&status=eq.finalizada`) || [];
+      const totalVendas = vendas.reduce((a, v) => a + (v.total_final || 0), 0);
+      await sbPatch("rp_caixa", "id", PDV_CAIXA_ID, { status: "fechado", valor_fechamento: totalVendas, total_vendas: totalVendas, contagem_vendas: vendas.length, closed_at: new Date().toISOString() });
+      alert(`✅ Caixa fechado!\n\n📈 Total em vendas: R$ ${totalVendas.toFixed(2)}\n🧾 Número de vendas: ${vendas.length}`);
+      PDV_CAIXA_ID = null;
+      localStorage.removeItem("rp_caixa_id");
+      renderPdvStatus();
+    }
+
+    async function pdvSearch(q) {
+      const res = document.getElementById("pdv-results");
+      if (!q || q.length < 2) { res.style.display = "none"; return; }
+      clearTimeout(pdvSearchTimer);
+      pdvSearchTimer = setTimeout(async () => {
+        const s = encodeURIComponent(q);
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        pdvSearchCache = rows;
+        if (!rows.length) { res.style.display = "none"; return; }
+        res.style.display = "block";
+        res.innerHTML = rows.map((p, i) => `
+          <div onclick="pdvAddItem(pdvSearchCache[${i}])" style="padding:10px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;" onmouseover="this.style.background='#FFF8E7'" onmouseout="this.style.background=''">
+            <div><b>${(p.nome||"").replace(/</g,"&lt;")}</b>${p.codigo ? " · " + p.codigo : ""}<br><span style="font-size:0.75rem; color:var(--secondary);">Estoque: ${p.estoque_atual||0} ${p.unidade||"UN"}</span></div>
+            <span style="color:var(--primary); font-weight:700; white-space:nowrap;">R$ ${(p.preco_venda||0).toFixed(2)}</span>
+          </div>`).join("");
+      }, 200);
+    }
+
+    function pdvAddItem(p) {
+      document.getElementById("pdv-search").value = "";
+      document.getElementById("pdv-results").style.display = "none";
+      const existing = PDV_CART.find(x => x.id === p.id);
+      if (existing) { existing.qty++; }
+      else { PDV_CART.push({ id: p.id, nome: p.nome, preco: parseFloat(p.preco_venda) || 0, estoque: parseFloat(p.estoque_atual) || 0, unidade: p.unidade || "UN", qty: 1 }); }
+      renderPdvCart();
+    }
+
+    function pdvCalcTotal() {
+      const subtotal = PDV_CART.reduce((acc, i) => acc + i.preco * i.qty, 0);
+      const descVal = parseFloat((document.getElementById("pdv-desconto") || {}).value) || 0;
+      const descTipo = (document.getElementById("pdv-desc-tipo") || {}).value || "R$";
+      const desconto = descTipo === "%" ? subtotal * descVal / 100 : descVal;
+      return { subtotal, desconto: Math.min(desconto, subtotal), total: Math.max(0, subtotal - desconto) };
+    }
+
+    function renderPdvTotals() {
+      const { subtotal, desconto, total } = pdvCalcTotal();
+      document.getElementById("pdv-subtotal").textContent = "R$ " + subtotal.toFixed(2);
+      document.getElementById("pdv-total").textContent = "R$ " + total.toFixed(2);
+    }
+
+    function renderPdvCart() {
+      const wrap = document.getElementById("pdv-cart-wrap");
+      if (!PDV_CART.length) { wrap.style.display = "none"; return; }
+      wrap.style.display = "";
+      document.getElementById("pdv-cart").innerHTML = PDV_CART.map((item, idx) => `
+        <div style="display:flex; align-items:center; gap:6px; padding:8px 10px; background:var(--card); border-radius:8px; margin-bottom:6px; box-shadow:var(--shadow);">
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.85rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${(item.nome||"").replace(/</g,"&lt;")}</div>
+            <div style="font-size:0.75rem; color:var(--secondary);">R$ ${item.preco.toFixed(2)} / ${item.unidade}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:3px; flex-shrink:0;">
+            <button onclick="pdvQty(${idx},-1)" style="width:26px; height:26px; border:1px solid var(--border); border-radius:5px; background:#fff; cursor:pointer; font-size:1rem; line-height:1;">−</button>
+            <input type="number" value="${item.qty}" min="1" step="0.5" onchange="pdvSetQty(${idx},this.value)" style="width:42px; text-align:center; padding:3px; border:1px solid var(--border); border-radius:5px; font-size:0.85rem;">
+            <button onclick="pdvQty(${idx},1)" style="width:26px; height:26px; border:1px solid var(--border); border-radius:5px; background:#fff; cursor:pointer; font-size:1rem; line-height:1;">+</button>
+          </div>
+          <div style="font-weight:700; font-size:0.88rem; min-width:58px; text-align:right; flex-shrink:0;">R$ ${(item.preco * item.qty).toFixed(2)}</div>
+          <button onclick="pdvRemove(${idx})" style="border:none; background:none; color:var(--danger); cursor:pointer; font-size:1.1rem; padding:2px; flex-shrink:0;">✕</button>
+        </div>`).join("");
+      renderPdvTotals();
+    }
+
+    function pdvQty(idx, delta) { PDV_CART[idx].qty = Math.max(0.5, PDV_CART[idx].qty + delta); renderPdvCart(); }
+    function pdvSetQty(idx, val) { PDV_CART[idx].qty = Math.max(0.5, parseFloat(val) || 1); renderPdvCart(); }
+    function pdvRemove(idx) { PDV_CART.splice(idx, 1); renderPdvCart(); }
+    function pdvLimpar() { if (!PDV_CART.length || confirm("Limpar o carrinho?")) { PDV_CART = []; renderPdvCart(); } }
+
+    function pdvPagar(tipo) {
+      if (!PDV_CART.length) { alert("Adicione produtos ao carrinho."); return; }
+      PDV_PAY_TIPO = tipo;
+      const { total } = pdvCalcTotal();
+      const nomes = { pix: "💳 Pix", cartao_credito: "💳 Cartão Crédito", cartao_debito: "💳 Cartão Débito", dinheiro: "💵 Dinheiro" };
+      document.getElementById("pdv-pay-title").textContent = nomes[tipo] || tipo;
+      document.getElementById("pdv-pay-total-display").textContent = "R$ " + total.toFixed(2);
+      document.getElementById("pdv-pay-cliente").value = "";
+      document.getElementById("pdv-pay-recebido").value = "";
+      document.getElementById("pdv-pay-troco").textContent = "";
+      const isDinheiro = tipo === "dinheiro";
+      document.getElementById("pdv-pay-dinheiro-box").classList.toggle("hidden", !isDinheiro);
+      document.getElementById("pdv-pay-outro-box").style.display = isDinheiro ? "none" : "";
+      document.getElementById("pdv-pay-modal").classList.remove("hidden");
+      if (isDinheiro) setTimeout(() => document.getElementById("pdv-pay-recebido").focus(), 100);
+    }
+    function pdvCalcTroco() {
+      const { total } = pdvCalcTotal();
+      const rec = parseFloat(document.getElementById("pdv-pay-recebido").value) || 0;
+      const diff = rec - total;
+      const el = document.getElementById("pdv-pay-troco");
+      el.textContent = diff >= 0 ? `Troco: R$ ${diff.toFixed(2)}` : `⚠️ Faltam: R$ ${Math.abs(diff).toFixed(2)}`;
+      el.style.background = diff >= 0 ? "#D4EDDA" : "#F8D7DA";
+      el.style.color = diff >= 0 ? "#155724" : "#721c24";
+    }
+    function closePdvPayModal() { document.getElementById("pdv-pay-modal").classList.add("hidden"); }
+
+    async function pdvConfirmarPagamento() {
+      const tipo = PDV_PAY_TIPO;
+      const { subtotal, desconto, total } = pdvCalcTotal();
+      if (tipo === "dinheiro") {
+        const rec = parseFloat(document.getElementById("pdv-pay-recebido").value) || 0;
+        if (rec < total) { alert("Valor recebido é menor que o total da venda."); return; }
+      }
+      const clienteNome = (document.getElementById("pdv-pay-cliente").value || "").trim() || null;
+      const valorPago = tipo === "dinheiro" ? parseFloat(document.getElementById("pdv-pay-recebido").value) || total : total;
+      const troco = tipo === "dinheiro" ? Math.max(0, valorPago - total) : 0;
+
+      const ano = new Date().getFullYear();
+      const existentes = await sbSelect("rp_pdv_vendas", `select=numero&numero=like.PDV-${ano}-%&order=created_at.desc&limit=1`) || [];
+      const lastN = existentes.length ? parseInt((existentes[0].numero || "0").split("-")[2] || "0") : 0;
+      const numero = `PDV-${ano}-${String(lastN + 1).padStart(4, "0")}`;
+      const vendaId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const itensSnap = PDV_CART.map(i => ({ ...i }));
+
+      const venda = { id: vendaId, numero, cliente_nome: clienteNome, itens: itensSnap, total: subtotal, desconto, total_final: total, forma_pagamento: tipo, valor_pago: valorPago, troco, status: "finalizada", user_name: CURRENT_USER ? CURRENT_USER.name : null, caixa_id: PDV_CAIXA_ID, created_at: now };
+      await sbInsert("rp_pdv_vendas", venda);
+
+      for (const item of PDV_CART) {
+        const estAntes = parseFloat(item.estoque) || 0;
+        const estDepois = Math.max(0, estAntes - item.qty);
+        await sbPatch("rp_products", "id", item.id, { estoque_atual: estDepois });
+        await sbInsert("rp_stock_moves", { product_id: item.id, product_nome: item.nome, tipo: "saida", quantidade: item.qty, estoque_antes: estAntes, estoque_depois: estDepois, motivo: `Venda ${numero}`, user_name: CURRENT_USER ? CURRENT_USER.name : null });
+        const idx = STATE.products.findIndex(x => x.id === item.id);
+        if (idx >= 0) STATE.products[idx].estoque_atual = estDepois;
+      }
+
+      closePdvPayModal();
+      PDV_CART = [];
+      renderPdvCart();
+      renderPdvHistorico();
+
+      const trocTxt = tipo === "dinheiro" && troco > 0 ? `\nTroco: R$ ${troco.toFixed(2)}` : "";
+      if (confirm(`✅ Venda ${numero} registrada!\nTotal: R$ ${total.toFixed(2)} · ${tipo}${trocTxt}\n\nImprimir cupom?`)) {
+        pdfCupomVenda({ ...venda, itens: itensSnap });
+      }
+    }
+
+    async function renderPdvHistorico() {
+      const list = document.getElementById("pdv-vendas-list");
+      const resumo = document.getElementById("pdv-hoje-resumo");
+      if (!list) return;
+      const hoje = todayYMD();
+      const rows = await sbSelect("rp_pdv_vendas", `select=*&created_at=gte.${hoje}T00:00:00&status=eq.finalizada&order=created_at.desc`) || [];
+      PDV_VENDAS_CACHE = rows;
+      const totalHoje = rows.reduce((a, v) => a + (v.total_final || 0), 0);
+      const porForma = rows.reduce((acc, v) => { acc[v.forma_pagamento] = (acc[v.forma_pagamento] || 0) + (v.total_final || 0); return acc; }, {});
+      const pgLabels = { pix: "Pix", cartao_credito: "Crédito", cartao_debito: "Débito", dinheiro: "Dinheiro" };
+      if (resumo) {
+        const detalhe = Object.keys(porForma).map(k => `${pgLabels[k]||k}: R$ ${porForma[k].toFixed(2)}`).join(" · ");
+        resumo.innerHTML = `<div style="background:var(--card); border-radius:10px; padding:12px; margin-bottom:10px; box-shadow:var(--shadow);">
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+            <span style="font-size:0.88rem;">Vendas: <b>${rows.length}</b></span>
+            <span style="font-size:1rem; font-weight:700; color:var(--success);">R$ ${totalHoje.toFixed(2)}</span>
+          </div>
+          ${detalhe ? `<div style="font-size:0.75rem; color:var(--secondary);">${detalhe}</div>` : ""}
+        </div>`;
+      }
+      if (!rows.length) { list.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:16px;">Nenhuma venda hoje ainda.</p>'; return; }
+      list.innerHTML = rows.map((v, idx) => {
+        const hora = new Date(v.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        const itensResumo = (v.itens || []).slice(0, 2).map(i => `${i.qty}x ${(i.nome||"").substring(0,20)}`).join(", ") + (v.itens && v.itens.length > 2 ? "..." : "");
+        return `<div class="card" style="padding:10px 14px;">
+          <h4 style="font-size:0.9rem;">${v.numero} ${v.cliente_nome ? "· " + v.cliente_nome : ""} <span style="font-weight:400; color:var(--secondary); font-size:0.78rem;">· ${pgLabels[v.forma_pagamento]||v.forma_pagamento}</span></h4>
+          <p style="font-size:0.8rem;">💰 <b>R$ ${(v.total_final||0).toFixed(2)}</b>${v.desconto > 0 ? " · Desc: R$ " + (v.desconto||0).toFixed(2) : ""}${v.troco > 0 ? " · Troco: R$ " + v.troco.toFixed(2) : ""}</p>
+          ${itensResumo ? `<p style="font-size:0.75rem; color:var(--secondary);">${itensResumo}</p>` : ""}
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
+            <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="pdfCupomVenda(PDV_VENDAS_CACHE[${idx}])">🧾 Cupom</button>
+            ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="cancelarVendaPdv('${v.id}','${v.numero}',${idx})">❌ Cancelar</button>` : ""}
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    async function cancelarVendaPdv(id, numero, cacheIdx) {
+      if (!confirm(`Cancelar venda ${numero}? O estoque NÃO será estornado automaticamente.`)) return;
+      await sbPatch("rp_pdv_vendas", "id", id, { status: "cancelada" });
+      renderPdvHistorico();
+    }
+
+    function pdfCupomVenda(v) {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const W = 210, navy = [27, 58, 107];
+      const LM = 60, RM = 150, CW = RM - LM;
+      let y = 20;
+      doc.setDrawColor(...navy).setLineWidth(0.8).rect(LM, y - 5, CW, 5);
+      doc.setFillColor(...navy).rect(LM, y - 5, CW, 10, "F");
+      doc.setFont("helvetica", "bold").setFontSize(11).setTextColor(255, 255, 255).text("CUPOM DE VENDA", (LM + RM) / 2, y + 1, { align: "center" }); y += 10;
+      doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(...navy).text(COMPANY.name, (LM + RM) / 2, y + 4, { align: "center" }); y += 9;
+      doc.setFont("helvetica", "normal").setFontSize(7.5).setTextColor(60, 60, 60);
+      doc.text(`CNPJ: ${COMPANY.cnpj}`, (LM + RM) / 2, y + 0, { align: "center" }); y += 4;
+      doc.text(`${COMPANY.address}`, (LM + RM) / 2, y, { align: "center" }); y += 4;
+      doc.text(`Tel: ${COMPANY.phone}`, (LM + RM) / 2, y, { align: "center" }); y += 6;
+      doc.setDrawColor(180, 180, 180).setLineWidth(0.3).line(LM, y, RM, y); y += 5;
+      doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(30, 30, 30).text(`Nº ${v.numero}`, LM, y);
+      doc.setFont("helvetica", "normal").setFontSize(8).text(new Date(v.created_at || Date.now()).toLocaleString("pt-BR"), RM, y, { align: "right" }); y += 5;
+      if (v.cliente_nome) { doc.text(`Cliente: ${v.cliente_nome}`, LM, y); y += 5; }
+      doc.setLineWidth(0.3).line(LM, y, RM, y); y += 4;
+      doc.setFont("helvetica", "bold").setFontSize(8).text("PRODUTO", LM, y);
+      doc.text("TOTAL", RM, y, { align: "right" }); y += 4;
+      doc.line(LM, y, RM, y); y += 3;
+      (v.itens || []).forEach(it => {
+        doc.setFont("helvetica", "normal").setFontSize(7.5).setTextColor(30, 30, 30);
+        const lines = doc.splitTextToSize(String(it.nome || ""), CW - 18);
+        doc.text(lines, LM, y);
+        doc.setFont("helvetica", "bold").text(`R$ ${((it.preco || 0) * (it.qty || 1)).toFixed(2)}`, RM, y, { align: "right" });
+        y += lines.length * 3.8;
+        doc.setFont("helvetica", "normal").setFontSize(7).setTextColor(100, 100, 100).text(`  ${it.qty} x R$ ${(it.preco || 0).toFixed(2)} / ${it.unidade || "UN"}`, LM + 2, y); y += 4.5;
+        doc.setTextColor(30, 30, 30);
+      });
+      doc.setLineWidth(0.3).line(LM, y, RM, y); y += 4;
+      if ((v.desconto || 0) > 0) { doc.setFontSize(8.5).text(`Desconto:`, LM, y); doc.text(`- R$ ${(v.desconto || 0).toFixed(2)}`, RM, y, { align: "right" }); y += 5; }
+      doc.setFillColor(245, 245, 245).rect(LM, y - 1, CW, 8, "F");
+      doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(...navy).text("TOTAL:", LM + 2, y + 5);
+      doc.text(`R$ ${(v.total_final || 0).toFixed(2)}`, RM - 2, y + 5, { align: "right" }); y += 10;
+      const pgLabels = { pix: "Pix", cartao_credito: "Cartão Crédito", cartao_debito: "Cartão Débito", dinheiro: "Dinheiro" };
+      doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(50, 50, 50);
+      doc.text(`Pagamento: ${pgLabels[v.forma_pagamento] || v.forma_pagamento}`, LM, y); y += 4;
+      if ((v.troco || 0) > 0) { doc.text(`Troco: R$ ${(v.troco || 0).toFixed(2)}`, LM, y); y += 5; }
+      doc.setLineWidth(0.3).line(LM, y, RM, y); y += 5;
+      doc.setFont("helvetica", "italic").setFontSize(7.5).setTextColor(120, 120, 120).text("Obrigado pela preferência! 🔧", (LM + RM) / 2, y, { align: "center" });
+      const fname = `Cupom-${v.numero}.pdf`;
+      try { const file = new File([doc.output("blob")], fname, { type: "application/pdf" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: fname }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
       doc.save(fname);
     }
 
