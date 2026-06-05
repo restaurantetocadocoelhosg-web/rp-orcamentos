@@ -87,6 +87,7 @@
       <button class="tab" data-target="cobrancas">Cobranças</button>
       <button class="tab" data-target="comissoes" id="tab-comissoes">Comissões</button>
       <button class="tab" data-target="assistente" id="tab-assistente">🤖 IA</button>
+      <button class="tab" data-target="produtos" id="tab-produtos">📦 Produtos</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
@@ -137,8 +138,40 @@
         <button class="btn-primary" onclick="openUserModal()">+ Novo usuário</button>
         <div id="users-list" class="list" style="margin-top:12px;"></div>
       </section>
+      <section id="produtos" class="panel">
+        <button class="btn-primary" onclick="openProductModal()">+ Novo Produto</button>
+        <input type="text" id="product-search" placeholder="🔍 Buscar produto por nome ou código..." oninput="renderProducts()" style="margin-top:10px;">
+        <div style="font-size:0.8rem; color:var(--secondary); margin:8px 0;">📦 Catálogo com <span id="prod-count"></span> produtos importados do Shop9. Clique em ✏️ para editar.</div>
+        <div id="products-list" class="list" style="margin-top:8px;"></div>
+      </section>
     </main>
     <a id="fab-whatsapp" class="fab" href="#" target="_blank">💬</a>
+  </div>
+
+  <datalist id="prod-datalist"></datalist>
+
+  <div id="product-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="product-modal-title">Novo Produto</h3>
+      <form id="product-form">
+        <input type="text" id="p-codigo" placeholder="Código interno (ex: 001)" autocomplete="off">
+        <input type="text" id="p-nome" placeholder="Nome do produto" required autocomplete="off">
+        <input type="number" id="p-preco-venda" placeholder="Preço de venda (R$)" step="0.01" min="0">
+        <input type="number" id="p-preco-custo" placeholder="Preço de custo (R$)" step="0.01" min="0">
+        <input type="text" id="p-ncm" placeholder="NCM (ex: 85168010)">
+        <input type="text" id="p-unidade" placeholder="Unidade (UN, KG, M...)">
+        <input type="number" id="p-estoque" placeholder="Estoque atual" step="0.01" min="0">
+        <input type="number" id="p-estoque-min" placeholder="Estoque mínimo" step="0.01" min="0">
+        <input type="text" id="p-barras" placeholder="Código de barras (opcional)">
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; margin:6px 0 12px;">
+          <input type="checkbox" id="p-ativo" checked> Produto ativo
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-danger" onclick="closeProductModal()">Cancelar</button>
+          <button type="submit" class="btn-success">💾 Salvar</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div id="quote-modal" class="modal hidden">
@@ -155,7 +188,7 @@
         <input type="file" id="q-photo" accept="image/*">
         <div id="q-items">
           <div class="item-row">
-            <input type="text" class="i-desc" placeholder="Produto/Modelo" required>
+            <input type="text" class="i-desc" placeholder="Produto/Modelo" list="prod-datalist" onchange="onDescChange(this)" required>
             <input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required>
             <input type="number" class="i-price" placeholder="R$ Un" step="0.01" required>
           </div>
@@ -231,8 +264,9 @@
     const SUPA_URL = "https://zuwdgyvbuaocbzckhhlm.supabase.co";
     const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2RneXZidWFvY2J6Y2toaGxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2ODk0MTUsImV4cCI6MjA5MjI2NTQxNX0._v0lytkvd854urjD0l45rX9vrzSUh0Ro2VuGINsLwmM";
     const SB_H = { "apikey": SUPA_KEY, "Authorization": "Bearer " + SUPA_KEY, "Content-Type": "application/json" };
-    let STATE = { quotes: [], orders: [], clients: [], services: [] };
+    let STATE = { quotes: [], orders: [], clients: [], services: [], products: [] };
     let editingQuoteId = null;
+    let editingProductId = null;
     let editingServiceId = null;
     let CURRENT_USER = null;
     let editingUserId = null;
@@ -355,17 +389,18 @@
       show("btn-limpar-prontos", can("excluir"));
       show("tab-assistente", can("usar_ia"));
     }
-    function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify(STATE)); } catch (e) {} }
-    function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} STATE.quotes = STATE.quotes || []; STATE.orders = STATE.orders || []; STATE.clients = STATE.clients || []; STATE.services = STATE.services || []; }
+    function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify({ quotes: STATE.quotes, orders: STATE.orders, clients: STATE.clients, services: STATE.services })); } catch (e) {} }
+    function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} STATE.quotes = STATE.quotes || []; STATE.orders = STATE.orders || []; STATE.clients = STATE.clients || []; STATE.services = STATE.services || []; STATE.products = STATE.products || []; }
     async function loadAll() {
-      const [q, o, c, s] = await Promise.all([
+      const [q, o, c, s, p] = await Promise.all([
         sbSelect("rp_quotes", "select=*&order=created_at.desc"),
         sbSelect("rp_orders", "select=*&order=created_at.desc"),
         sbSelect("rp_clients", "select=*&order=created_at.desc"),
-        sbSelect("rp_services", "select=*&order=created_at.desc")
+        sbSelect("rp_services", "select=*&order=created_at.desc"),
+        sbSelect("rp_products", "select=id,codigo,nome,preco_venda,ncm,unidade&ativo=eq.true&order=nome.asc&limit=200")
       ]);
       if (q === null || o === null || c === null) { cacheLoad(); }
-      else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; STATE.services = (s || []).map(r => ({ ...r.data, id: r.id })); cacheSave(); }
+      else { STATE.quotes = q.map(r => ({ ...r.data, id: r.id })); STATE.orders = o.map(r => ({ ...r.data, id: r.id })); STATE.clients = c; STATE.services = (s || []).map(r => ({ ...r.data, id: r.id })); STATE.products = p || []; cacheSave(); }
       renderQuotes(); renderOrders(); renderClients(); renderCobrancas(); renderServices();
     }
 
@@ -390,6 +425,7 @@
           if (btn.dataset.target === "adm") renderAdmin();
           if (btn.dataset.target === "comissoes") renderComissoes();
           if (btn.dataset.target === "servicos") renderServices();
+          if (btn.dataset.target === "produtos") renderProducts();
         });
       });
     }
@@ -407,7 +443,8 @@
     function openQuoteModal() {
       editingQuoteId = null;
       document.getElementById("quote-form").reset();
-      document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" list="prod-datalist" onchange="onDescChange(this)" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      fillProdDatalist();
       const def = (CURRENT_USER && CURRENT_USER.com) || 5;
       document.getElementById("q-com").value = def; document.getElementById("q-com-val").textContent = String(def);
       setQuoteModalMode(false);
@@ -416,7 +453,7 @@
     function closeQuoteModal() {
       document.getElementById("quote-modal").classList.add("hidden");
       document.getElementById("quote-form").reset();
-      document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
+      document.getElementById("q-items").innerHTML = `<div class="item-row"><input type="text" class="i-desc" placeholder="Produto/Modelo" list="prod-datalist" onchange="onDescChange(this)" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required></div>`;
       editingQuoteId = null;
       setQuoteModalMode(false);
     }
@@ -444,7 +481,7 @@
     }
     function addItemRow() {
       const row = document.createElement("div"); row.className = "item-row";
-      row.innerHTML = `<input type="text" class="i-desc" placeholder="Produto/Modelo" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required>`;
+      row.innerHTML = `<input type="text" class="i-desc" placeholder="Produto/Modelo" list="prod-datalist" onchange="onDescChange(this)" required><input type="number" class="i-qty" placeholder="Qtd" min="1" value="1" required><input type="number" class="i-price" placeholder="R$ Un" step="0.01" required>`;
       document.getElementById("q-items").appendChild(row);
     }
 
@@ -975,6 +1012,113 @@
       const doc = buildRecibo(o);
       try { const file = new File([doc.output("blob")], fname, { type: "application/pdf" }); if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: fname }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
       doc.save(fname);
+    }
+
+    // ===== Produtos =====
+    async function renderProducts() {
+      const list = document.getElementById("products-list"); if (!list) return;
+      const search = (document.getElementById("product-search") || {}).value || "";
+      list.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:14px;">Carregando…</p>';
+      let qs = "select=*&order=nome.asc&limit=100";
+      if (search.trim()) {
+        const s = encodeURIComponent(search.trim());
+        qs = `select=*&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&order=nome.asc&limit=100`;
+      }
+      const rows = await sbSelect("rp_products", qs) || [];
+      if (!search.trim()) {
+        const ct = await sbSelect("rp_products", "select=id&ativo=eq.true&limit=1&offset=0");
+        const total = (await fetch(`${SUPA_URL}/rest/v1/rp_products?select=id&ativo=eq.true`, { headers: { ...SB_H, "Prefer": "count=exact", "Range": "0-0" } })).headers.get("content-range") || "";
+        const num = total.split("/")[1] || "";
+        const c = document.getElementById("prod-count"); if (c && num) c.textContent = num;
+      }
+      if (!rows.length) { list.innerHTML = `<p style="text-align:center;color:var(--secondary);padding:20px;">${search ? "Nenhum produto encontrado." : "Nenhum produto cadastrado."}</p>`; return; }
+      list.innerHTML = rows.map(p => `
+        <div class="card" style="${p.ativo === false ? "opacity:0.55;" : ""}">
+          <h4>${(p.nome || "(sem nome)").replace(/</g, "&lt;")} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">${p.codigo ? "· " + p.codigo : ""}</span></h4>
+          <p>💰 Venda: <b>R$ ${(p.preco_venda || 0).toFixed(2)}</b> · Custo: R$ ${(p.preco_custo || 0).toFixed(2)}</p>
+          <p>📦 Estoque: ${p.estoque_atual || 0} ${p.unidade || "UN"} · NCM: ${p.ncm || "—"} ${p.ativo === false ? "· ⛔ inativo" : ""}</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+            <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="openProductModal('${p.id}')">✏️ Editar</button>
+            ${can("excluir") ? `<button class="btn-danger" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="deleteProduct('${p.id}')">🗑️ Excluir</button>` : ""}
+          </div>
+        </div>`).join("");
+    }
+    function openProductModal(id) {
+      if (id) {
+        const p = STATE.products.find(x => x.id === id) || { id };
+        editingProductId = id;
+        document.getElementById("product-modal-title").textContent = "Editar Produto";
+        document.getElementById("p-codigo").value = p.codigo || "";
+        document.getElementById("p-nome").value = p.nome || "";
+        document.getElementById("p-preco-venda").value = p.preco_venda != null ? p.preco_venda : "";
+        document.getElementById("p-preco-custo").value = p.preco_custo != null ? p.preco_custo : "";
+        document.getElementById("p-ncm").value = p.ncm || "";
+        document.getElementById("p-unidade").value = p.unidade || "UN";
+        document.getElementById("p-estoque").value = p.estoque_atual != null ? p.estoque_atual : "";
+        document.getElementById("p-estoque-min").value = p.estoque_minimo != null ? p.estoque_minimo : "";
+        document.getElementById("p-barras").value = p.codigo_barras || "";
+        document.getElementById("p-ativo").checked = p.ativo !== false;
+        if (!p.nome) {
+          sbSelect("rp_products", `select=*&id=eq.${id}`).then(rows => {
+            if (rows && rows[0]) { const r = rows[0]; document.getElementById("p-codigo").value = r.codigo || ""; document.getElementById("p-nome").value = r.nome || ""; document.getElementById("p-preco-venda").value = r.preco_venda != null ? r.preco_venda : ""; document.getElementById("p-preco-custo").value = r.preco_custo != null ? r.preco_custo : ""; document.getElementById("p-ncm").value = r.ncm || ""; document.getElementById("p-unidade").value = r.unidade || "UN"; document.getElementById("p-estoque").value = r.estoque_atual != null ? r.estoque_atual : ""; document.getElementById("p-estoque-min").value = r.estoque_minimo != null ? r.estoque_minimo : ""; document.getElementById("p-barras").value = r.codigo_barras || ""; document.getElementById("p-ativo").checked = r.ativo !== false; }
+          });
+        }
+      } else {
+        editingProductId = null;
+        document.getElementById("product-modal-title").textContent = "Novo Produto";
+        document.getElementById("product-form").reset();
+        document.getElementById("p-ativo").checked = true;
+        document.getElementById("p-ncm").value = COMPANY.ncm;
+        document.getElementById("p-unidade").value = "UN";
+      }
+      document.getElementById("product-modal").classList.remove("hidden");
+    }
+    function closeProductModal() { document.getElementById("product-modal").classList.add("hidden"); editingProductId = null; }
+    document.getElementById("product-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const obj = {
+        codigo: document.getElementById("p-codigo").value.trim() || null,
+        nome: document.getElementById("p-nome").value.trim(),
+        preco_venda: parseFloat(document.getElementById("p-preco-venda").value) || 0,
+        preco_custo: parseFloat(document.getElementById("p-preco-custo").value) || 0,
+        ncm: document.getElementById("p-ncm").value.trim() || null,
+        unidade: document.getElementById("p-unidade").value.trim() || "UN",
+        estoque_atual: parseFloat(document.getElementById("p-estoque").value) || 0,
+        estoque_minimo: parseFloat(document.getElementById("p-estoque-min").value) || 0,
+        codigo_barras: document.getElementById("p-barras").value.trim() || null,
+        ativo: document.getElementById("p-ativo").checked
+      };
+      if (!obj.nome) { alert("Nome do produto é obrigatório."); return; }
+      if (editingProductId) {
+        await sbPatch("rp_products", "id", editingProductId, obj);
+        const idx = STATE.products.findIndex(x => x.id === editingProductId);
+        if (idx >= 0) STATE.products[idx] = { ...STATE.products[idx], ...obj };
+      } else {
+        obj.id = crypto.randomUUID();
+        await sbInsert("rp_products", obj);
+        STATE.products.unshift(obj);
+      }
+      closeProductModal(); renderProducts(); fillProdDatalist();
+    });
+    async function deleteProduct(id) {
+      const p = STATE.products.find(x => x.id === id);
+      if (!confirm(`Excluir "${p ? p.nome : "produto"}"? Não dá pra desfazer.`)) return;
+      await sbDelete("rp_products", "id", id);
+      STATE.products = STATE.products.filter(x => x.id !== id);
+      renderProducts();
+    }
+    function fillProdDatalist() {
+      const dl = document.getElementById("prod-datalist"); if (!dl || !STATE.products.length) return;
+      dl.innerHTML = STATE.products.map(p => `<option value="${(p.nome || "").replace(/"/g, "&quot;")}">R$ ${(p.preco_venda || 0).toFixed(2)}${p.codigo ? " · " + p.codigo : ""}</option>`).join("");
+    }
+    function onDescChange(input) {
+      const val = input.value.trim();
+      const p = STATE.products.find(x => (x.nome || "").toLowerCase() === val.toLowerCase());
+      if (p && p.preco_venda > 0) {
+        const row = input.closest(".item-row");
+        const priceInput = row && row.querySelector(".i-price");
+        if (priceInput && !priceInput.value) priceInput.value = p.preco_venda.toFixed(2);
+      }
     }
 
     // PWA: service worker para funcionar offline e instalar na tela inicial
