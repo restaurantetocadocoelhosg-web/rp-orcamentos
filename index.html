@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v26</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v27</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -709,6 +709,13 @@
       const hay = `${(rec.client && rec.client.name) || ""} ${(rec.client && rec.client.phone) || ""} ${rec.number || ""} ${itens} ${(rec.seller && rec.seller.name) || ""}`.toLowerCase();
       return term.toLowerCase().split(/\s+/).filter(Boolean).every(t => hay.includes(t));
     }
+    // Busca de produto por PALAVRAS (AND): cada palavra precisa aparecer em nome/código/cód.barras/categoria,
+    // em qualquer ordem. Resolve "termostato vareta" achar "Termostato de vareta...".
+    function prodFilter(term) {
+      const ws = String(term || "").trim().split(/\s+/).filter(Boolean);
+      if (!ws.length) return "";
+      return "and=(" + ws.map(w => { const e = encodeURIComponent(w); return `or(nome.ilike.*${e}*,codigo.ilike.*${e}*,codigo_barras.ilike.*${e}*,categoria.ilike.*${e}*)`; }).join(",") + ")";
+    }
     function isAdmin() { return CURRENT_USER && CURRENT_USER.role === "admin"; }
     function can(p) { return !CURRENT_USER || isAdmin() || (CURRENT_USER.perms && CURRENT_USER.perms[p]); }
     // vendedor vê só o que é dele; admin (ou quem tem ver_todos) vê tudo.
@@ -1079,8 +1086,7 @@
       const box = document.getElementById("inv-results");
       if (!q || q.trim().length < 2) { box.style.display = "none"; return; }
       invSearchTimer = setTimeout(async () => {
-        const s = encodeURIComponent(q.trim());
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&${prodFilter(q)}&ativo=eq.true&order=nome.asc&limit=8`) || [];
         if (!rows.length) { box.style.display = "none"; return; }
         box.innerHTML = rows.map(p => `<div onclick='invAdd(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="padding:9px 12px; cursor:pointer; font-size:0.85rem; border-bottom:1px solid #eee;">${(p.nome || "").replace(/</g, "&lt;")}${p.codigo ? (" · " + p.codigo) : ""} <span style="color:var(--secondary);">· sist: ${p.estoque_atual || 0} ${p.unidade || "UN"}</span></div>`).join("");
         box.style.display = "block";
@@ -1679,8 +1685,7 @@
       if (!q || q.length < 2) { res.style.display = "none"; return; }
       clearTimeout(pdvSearchTimer);
       pdvSearchTimer = setTimeout(async () => {
-        const s = encodeURIComponent(q);
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&${prodFilter(q)}&ativo=eq.true&order=nome.asc&limit=8`) || [];
         pdvSearchCache = rows;
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
@@ -1941,8 +1946,7 @@
       if (!q || q.length < 2) { res.style.display = "none"; return; }
       clearTimeout(smSearchTimer);
       smSearchTimer = setTimeout(async () => {
-        const s = encodeURIComponent(q);
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=10`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&${prodFilter(q)}&ativo=eq.true&order=nome.asc&limit=10`) || [];
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
         res.innerHTML = rows.map(p => `<div onclick="selectStockProd(${JSON.stringify(p).replace(/'/g,"&#39;")})" style="padding:8px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee;" onmouseover="this.style.background='#F1F5FB'" onmouseout="this.style.background=''">
@@ -2023,8 +2027,7 @@
       list.innerHTML = '<p style="text-align:center;color:var(--secondary);padding:14px;">Carregando…</p>';
       let qs = "select=*&order=nome.asc&limit=100";
       if (search.trim()) {
-        const s = encodeURIComponent(search.trim());
-        qs = `select=*&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&order=nome.asc&limit=100`;
+        qs = `select=*&${prodFilter(search)}&order=nome.asc&limit=100`;
       }
       const rows = await sbSelect("rp_products", qs) || [];
       if (!search.trim()) {
