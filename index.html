@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v23</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v24</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -138,6 +138,7 @@
       <button class="tab" data-target="produtos" id="tab-produtos">📦 Produtos</button>
       <button class="tab" data-target="estoque" id="tab-estoque">📊 Estoque</button>
       <button class="tab" data-target="financeiro" id="tab-financeiro" style="display:none;">💰 Financeiro</button>
+      <button class="tab" data-target="relatorios" id="tab-relatorios" style="display:none;">📈 Relatórios</button>
       <button class="tab" data-target="adm" id="tab-adm" style="display:none;">ADM</button>
     </nav>
     <main class="content">
@@ -272,6 +273,15 @@
         </div>
         <button class="btn-primary" onclick="openContaModal()">+ Nova conta</button>
         <div id="contas-list" class="list"></div>
+      </section>
+      <section id="relatorios" class="panel">
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+          <button class="btn-secondary" style="flex:1 1 60px; margin:0;" onclick="setRelPeriod(1)">Hoje</button>
+          <button class="btn-secondary" style="flex:1 1 60px; margin:0;" onclick="setRelPeriod(7)">7 dias</button>
+          <button class="btn-secondary" style="flex:1 1 60px; margin:0;" onclick="setRelPeriod(30)">30 dias</button>
+          <button class="btn-secondary" style="flex:1 1 60px; margin:0;" onclick="setRelPeriod(0)">Tudo</button>
+        </div>
+        <div id="rel-content"></div>
       </section>
       <section id="produtos" class="panel">
         <button class="btn-primary" onclick="openProductModal()">+ Novo Produto</button>
@@ -672,6 +682,7 @@
       show("btn-limpar-prontos", can("excluir"));
       show("tab-assistente", can("usar_ia"));
       show("tab-financeiro", isAdmin());
+      show("tab-relatorios", isAdmin());
     }
     function cacheSave() { try { localStorage.setItem("rp_cache", JSON.stringify({ quotes: STATE.quotes, orders: STATE.orders, clients: STATE.clients, services: STATE.services })); } catch (e) {} }
     function cacheLoad() { try { const c = JSON.parse(localStorage.getItem("rp_cache") || "null"); if (c) STATE = c; } catch (e) {} STATE.quotes = STATE.quotes || []; STATE.orders = STATE.orders || []; STATE.clients = STATE.clients || []; STATE.services = STATE.services || []; STATE.products = STATE.products || []; }
@@ -713,6 +724,7 @@
           if (btn.dataset.target === "produtos") renderProducts();
           if (btn.dataset.target === "estoque") renderEstoque();
           if (btn.dataset.target === "financeiro") setFinView(FIN_VIEW);
+          if (btn.dataset.target === "relatorios") renderRelatorios();
         });
       });
     }
@@ -1075,6 +1087,68 @@
       closeInventario();
       alert(`✅ Inventário ${numero} finalizado!\n${itens.length} produto(s) ajustado(s).\nDiferença total: ${totalDif >= 0 ? "+" : ""}${totalDif.toFixed(2)}`);
       const painel = document.getElementById("estoque"); if (painel && painel.classList.contains("active")) renderEstoque();
+    }
+
+    // ===== Relatórios =====
+    let REL_PERIOD = 30; // dias; 0 = tudo
+    function setRelPeriod(d) { REL_PERIOD = d; renderRelatorios(); }
+    function relLabel() { return REL_PERIOD === 0 ? "todo o período" : (REL_PERIOD === 1 ? "hoje" : `últimos ${REL_PERIOD} dias`); }
+    async function renderRelatorios() {
+      const box = document.getElementById("rel-content"); if (!box) return;
+      box.innerHTML = '<p style="text-align:center; color:var(--secondary); padding:14px;">Carregando…</p>';
+      let cutoff = null;
+      if (REL_PERIOD > 0) {
+        const base = REL_PERIOD === 1 ? new Date(todayYMD() + "T00:00:00") : new Date(Date.now() - REL_PERIOD * 86400000);
+        cutoff = base.toISOString();
+      }
+      let q = "select=total_final,forma_pagamento,itens,created_at&status=eq.finalizada&order=created_at.desc";
+      if (cutoff) q += `&created_at=gte.${cutoff}`;
+      const vendas = await sbSelect("rp_pdv_vendas", q) || [];
+      const totalVendas = vendas.reduce((s, v) => s + (v.total_final || 0), 0);
+      const formas = {};
+      vendas.forEach(v => { const f = v.forma_pagamento || "outro"; formas[f] = (formas[f] || 0) + (v.total_final || 0); });
+      const prodMap = {};
+      vendas.forEach(v => (v.itens || []).forEach(it => {
+        const id = it.id || it.nome; if (!id) return;
+        const m = prodMap[id] || (prodMap[id] = { nome: it.nome || id, qty: 0, receita: 0, id: it.id });
+        m.qty += (it.qty || 0); m.receita += ((it.preco || 0) * (it.qty || 0));
+      }));
+      const top = Object.values(prodMap).sort((a, b) => b.qty - a.qty).slice(0, 8);
+      const ids = Object.values(prodMap).map(m => m.id).filter(Boolean);
+      let custoMap = {};
+      if (ids.length) { const rows = await sbSelect("rp_products", `select=id,custo_medio&id=in.(${ids.join(",")})`) || []; rows.forEach(r => custoMap[r.id] = parseFloat(r.custo_medio) || 0); }
+      let lucro = 0, temCusto = false;
+      Object.values(prodMap).forEach(m => { const c = custoMap[m.id] || 0; if (c > 0) temCusto = true; lucro += m.receita - c * m.qty; });
+      const pedidos = (STATE.orders || []).filter(o => !cutoff || (o.createdAt || "") >= cutoff);
+      const totalPed = pedidos.reduce((s, o) => s + (o.total || 0), 0);
+      const pagPed = pedidos.filter(o => o.paid).reduce((s, o) => s + (o.total || 0), 0);
+      let est = { valor_estoque: 0, itens_baixo: 0, total_itens: 0 };
+      const r = await sbRpc("resumo_estoque", {}); if (r.ok && r.data) { const d = Array.isArray(r.data) ? r.data[0] : r.data; if (d) est = d; }
+      const formaLabel = { dinheiro: "💵 Dinheiro", pix: "💳 Pix", cartao_credito: "💳 Crédito", cartao_debito: "💳 Débito", outro: "Outro" };
+      const card = (cor, titulo, valor, sub) => `<div class="card" style="border-left-color:${cor}"><p style="margin:0; font-size:0.8rem;">${titulo}</p><h4 style="font-size:1.2rem; color:${cor};">${valor}</h4>${sub ? `<p style="margin:4px 0 0; font-size:0.8rem;">${sub}</p>` : ""}</div>`;
+      box.innerHTML = `
+        <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:8px;">📅 Período: <b>${relLabel()}</b></div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+          ${card("var(--success)", "💰 Vendas (balcão/PDV)", "R$ " + totalVendas.toFixed(2), `${vendas.length} venda(s)`)}
+          ${card("var(--primary)", "📈 Lucro bruto" + (temCusto ? "" : " (≈)"), "R$ " + lucro.toFixed(2), temCusto ? "venda − custo médio" : "informe custos p/ precisão")}
+        </div>
+        <div class="card" style="border-left-color:var(--secondary); margin-bottom:10px;">
+          <h4 style="font-size:0.95rem; margin-bottom:6px;">💳 Por forma de pagamento</h4>
+          ${Object.keys(formas).length ? Object.keys(formas).sort((a, b) => formas[b] - formas[a]).map(f => `<div style="display:flex; justify-content:space-between; font-size:0.85rem; border-top:1px solid var(--border); padding:4px 0;"><span>${formaLabel[f] || f}</span><b>R$ ${formas[f].toFixed(2)}</b></div>`).join("") : '<p style="font-size:0.85rem; color:var(--secondary);">Sem vendas no período.</p>'}
+        </div>
+        <div class="card" style="border-left-color:var(--accent); margin-bottom:10px;">
+          <h4 style="font-size:0.95rem; margin-bottom:6px;">🏆 Mais vendidos (qtd)</h4>
+          ${top.length ? top.map((m, i) => `<div style="display:flex; justify-content:space-between; font-size:0.85rem; border-top:1px solid var(--border); padding:4px 0;"><span>${i + 1}. ${(m.nome || "").replace(/</g, "&lt;")}</span><b>${m.qty} un · R$ ${m.receita.toFixed(2)}</b></div>`).join("") : '<p style="font-size:0.85rem; color:var(--secondary);">Sem vendas no período.</p>'}
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+          ${card("var(--primary)", "🧱 Pedidos (fabricação)", "R$ " + totalPed.toFixed(2), `${pedidos.length} pedido(s) · pagos R$ ${pagPed.toFixed(2)}`)}
+          ${card("var(--danger)", "📦 Estoque baixo", String(est.itens_baixo || 0), `de ${est.total_itens || 0} produtos`)}
+        </div>
+        <div class="card" style="border-left-color:var(--secondary);">
+          <p style="margin:0; font-size:0.8rem;">💼 Valor em estoque (custo médio × saldo)</p>
+          <h4 style="font-size:1.15rem;">R$ ${Number(est.valor_estoque || 0).toFixed(2)}</h4>
+          <p style="margin:4px 0 0; font-size:0.78rem; color:var(--secondary);">Aparece conforme você for lançando o custo nas entradas de estoque.</p>
+        </div>`;
     }
 
     // ===== Financeiro (Contas a Pagar / Receber) =====
