@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v24</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v25</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -418,13 +418,15 @@
       <form id="product-form">
         <input type="text" id="p-codigo" placeholder="Código interno (ex: 001)" autocomplete="off">
         <input type="text" id="p-nome" placeholder="Nome do produto" required autocomplete="off">
-        <input type="number" id="p-preco-venda" placeholder="Preço de venda (R$)" step="0.01" min="0">
-        <input type="number" id="p-preco-custo" placeholder="Preço de custo (R$)" step="0.01" min="0">
+        <input type="number" id="p-preco-venda" placeholder="Preço de venda (R$)" step="0.01" min="0" oninput="updateMargem()">
+        <input type="number" id="p-preco-custo" placeholder="Preço de custo (R$)" step="0.01" min="0" oninput="updateMargem()">
+        <div id="p-margem" style="font-size:0.8rem; font-weight:600; margin:-4px 0 10px;"></div>
+        <input type="text" id="p-categoria" placeholder="Categoria (ex: Resistências, Termostatos, Peças)" autocomplete="off">
         <input type="text" id="p-ncm" placeholder="NCM (ex: 85168010)">
         <input type="text" id="p-unidade" placeholder="Unidade (UN, KG, M...)">
         <input type="number" id="p-estoque" placeholder="Estoque atual" step="0.01" min="0">
-        <input type="number" id="p-estoque-min" placeholder="Estoque mínimo" step="0.01" min="0">
-        <input type="text" id="p-barras" placeholder="Código de barras (opcional)">
+        <input type="number" id="p-estoque-min" placeholder="Estoque mínimo (alerta de reposição)" step="0.01" min="0">
+        <input type="text" id="p-barras" placeholder="Código de barras (leitor ou digite)">
         <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; margin:6px 0 12px;">
           <input type="checkbox" id="p-ativo" checked> Produto ativo
         </label>
@@ -1039,7 +1041,7 @@
       if (!q || q.trim().length < 2) { box.style.display = "none"; return; }
       invSearchTimer = setTimeout(async () => {
         const s = encodeURIComponent(q.trim());
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
         if (!rows.length) { box.style.display = "none"; return; }
         box.innerHTML = rows.map(p => `<div onclick='invAdd(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="padding:9px 12px; cursor:pointer; font-size:0.85rem; border-bottom:1px solid #eee;">${(p.nome || "").replace(/</g, "&lt;")}${p.codigo ? (" · " + p.codigo) : ""} <span style="color:var(--secondary);">· sist: ${p.estoque_atual || 0} ${p.unidade || "UN"}</span></div>`).join("");
         box.style.display = "block";
@@ -1631,7 +1633,7 @@
       clearTimeout(pdvSearchTimer);
       pdvSearchTimer = setTimeout(async () => {
         const s = encodeURIComponent(q);
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
         pdvSearchCache = rows;
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
@@ -1893,7 +1895,7 @@
       clearTimeout(smSearchTimer);
       smSearchTimer = setTimeout(async () => {
         const s = encodeURIComponent(q);
-        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=10`) || [];
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=10`) || [];
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
         res.innerHTML = rows.map(p => `<div onclick="selectStockProd(${JSON.stringify(p).replace(/'/g,"&#39;")})" style="padding:8px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee;" onmouseover="this.style.background='#F1F5FB'" onmouseout="this.style.background=''">
@@ -1975,7 +1977,7 @@
       let qs = "select=*&order=nome.asc&limit=100";
       if (search.trim()) {
         const s = encodeURIComponent(search.trim());
-        qs = `select=*&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&order=nome.asc&limit=100`;
+        qs = `select=*&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*,codigo_barras.ilike.*${s}*,categoria.ilike.*${s}*)&order=nome.asc&limit=100`;
       }
       const rows = await sbSelect("rp_products", qs) || [];
       if (!search.trim()) {
@@ -1988,8 +1990,8 @@
       list.innerHTML = rows.map(p => `
         <div class="card" style="${p.ativo === false ? "opacity:0.55;" : ""}">
           <h4>${(p.nome || "(sem nome)").replace(/</g, "&lt;")} <span style="font-weight:400; color:var(--secondary); font-size:0.8rem;">${p.codigo ? "· " + p.codigo : ""}</span></h4>
-          <p>💰 Venda: <b>R$ ${(p.preco_venda || 0).toFixed(2)}</b> · Custo: R$ ${(p.preco_custo || 0).toFixed(2)}</p>
-          <p>📦 Estoque: ${p.estoque_atual || 0} ${p.unidade || "UN"} · NCM: ${p.ncm || "—"} ${p.ativo === false ? "· ⛔ inativo" : ""}</p>
+          <p>💰 Venda: <b>R$ ${(p.preco_venda || 0).toFixed(2)}</b> · Custo: R$ ${(p.preco_custo || 0).toFixed(2)}${(p.preco_custo > 0 && p.preco_venda > 0) ? ` · 📈 ${(((p.preco_venda - p.preco_custo) / p.preco_custo) * 100).toFixed(0)}%` : ""}</p>
+          <p>📦 Estoque: ${p.estoque_atual || 0} ${p.unidade || "UN"}${(p.estoque_minimo > 0 && p.estoque_atual <= p.estoque_minimo) ? " ⚠️" : ""}${p.categoria ? " · 🏷️ " + String(p.categoria).replace(/</g, "&lt;") : ""} · NCM: ${p.ncm || "—"} ${p.ativo === false ? "· ⛔ inativo" : ""}</p>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
             <button class="btn-success" style="width:auto; padding:5px 8px; font-size:0.75rem;" onclick="openStockModal('${p.id}','entrada')">📥 Entrada</button>
             <button class="btn-secondary" style="width:auto; padding:5px 8px; font-size:0.75rem; background:#FFF3CD; color:#856404;" onclick="openStockModal('${p.id}','saida')">📤 Saída</button>
@@ -1998,33 +2000,45 @@
           </div>
         </div>`).join("");
     }
+    function updateMargem() {
+      const el = document.getElementById("p-margem"); if (!el) return;
+      const venda = parseFloat(document.getElementById("p-preco-venda").value) || 0;
+      const custo = parseFloat(document.getElementById("p-preco-custo").value) || 0;
+      if (custo > 0 && venda > 0) {
+        const margem = ((venda - custo) / custo) * 100;
+        el.textContent = `Margem: ${margem.toFixed(1)}% · Lucro un.: R$ ${(venda - custo).toFixed(2)}`;
+        el.style.color = venda >= custo ? "var(--success)" : "var(--danger)";
+      } else { el.textContent = ""; }
+    }
+    function fillProductForm(p) {
+      document.getElementById("p-codigo").value = p.codigo || "";
+      document.getElementById("p-nome").value = p.nome || "";
+      document.getElementById("p-preco-venda").value = p.preco_venda != null ? p.preco_venda : "";
+      document.getElementById("p-preco-custo").value = p.preco_custo != null ? p.preco_custo : "";
+      document.getElementById("p-categoria").value = p.categoria || "";
+      document.getElementById("p-ncm").value = p.ncm || "";
+      document.getElementById("p-unidade").value = p.unidade || "UN";
+      document.getElementById("p-estoque").value = p.estoque_atual != null ? p.estoque_atual : "";
+      document.getElementById("p-estoque-min").value = p.estoque_minimo != null ? p.estoque_minimo : "";
+      document.getElementById("p-barras").value = p.codigo_barras || "";
+      document.getElementById("p-ativo").checked = p.ativo !== false;
+      updateMargem();
+    }
     function openProductModal(id) {
+      document.getElementById("product-form").reset();
       if (id) {
-        const p = STATE.products.find(x => x.id === id) || { id };
         editingProductId = id;
         document.getElementById("product-modal-title").textContent = "Editar Produto";
-        document.getElementById("p-codigo").value = p.codigo || "";
-        document.getElementById("p-nome").value = p.nome || "";
-        document.getElementById("p-preco-venda").value = p.preco_venda != null ? p.preco_venda : "";
-        document.getElementById("p-preco-custo").value = p.preco_custo != null ? p.preco_custo : "";
-        document.getElementById("p-ncm").value = p.ncm || "";
-        document.getElementById("p-unidade").value = p.unidade || "UN";
-        document.getElementById("p-estoque").value = p.estoque_atual != null ? p.estoque_atual : "";
-        document.getElementById("p-estoque-min").value = p.estoque_minimo != null ? p.estoque_minimo : "";
-        document.getElementById("p-barras").value = p.codigo_barras || "";
-        document.getElementById("p-ativo").checked = p.ativo !== false;
-        if (!p.nome) {
-          sbSelect("rp_products", `select=*&id=eq.${id}`).then(rows => {
-            if (rows && rows[0]) { const r = rows[0]; document.getElementById("p-codigo").value = r.codigo || ""; document.getElementById("p-nome").value = r.nome || ""; document.getElementById("p-preco-venda").value = r.preco_venda != null ? r.preco_venda : ""; document.getElementById("p-preco-custo").value = r.preco_custo != null ? r.preco_custo : ""; document.getElementById("p-ncm").value = r.ncm || ""; document.getElementById("p-unidade").value = r.unidade || "UN"; document.getElementById("p-estoque").value = r.estoque_atual != null ? r.estoque_atual : ""; document.getElementById("p-estoque-min").value = r.estoque_minimo != null ? r.estoque_minimo : ""; document.getElementById("p-barras").value = r.codigo_barras || ""; document.getElementById("p-ativo").checked = r.ativo !== false; }
-          });
-        }
+        document.getElementById("p-nome").value = "Carregando…";
+        // SEMPRE busca o registro completo do banco (o STATE tem colunas parciais — editar pelo STATE zerava custo/estoque).
+        sbSelect("rp_products", `select=*&id=eq.${id}`).then(rows => { if (rows && rows[0]) fillProductForm(rows[0]); });
       } else {
         editingProductId = null;
         document.getElementById("product-modal-title").textContent = "Novo Produto";
-        document.getElementById("product-form").reset();
         document.getElementById("p-ativo").checked = true;
         document.getElementById("p-ncm").value = COMPANY.ncm;
         document.getElementById("p-unidade").value = "UN";
+        updateMargem();
       }
       document.getElementById("product-modal").classList.remove("hidden");
     }
@@ -2036,6 +2050,7 @@
         nome: document.getElementById("p-nome").value.trim(),
         preco_venda: parseFloat(document.getElementById("p-preco-venda").value) || 0,
         preco_custo: parseFloat(document.getElementById("p-preco-custo").value) || 0,
+        categoria: document.getElementById("p-categoria").value.trim() || null,
         ncm: document.getElementById("p-ncm").value.trim() || null,
         unidade: document.getElementById("p-unidade").value.trim() || "UN",
         estoque_atual: parseFloat(document.getElementById("p-estoque").value) || 0,
