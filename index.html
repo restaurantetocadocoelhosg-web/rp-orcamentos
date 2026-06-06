@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v19</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v20</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -305,6 +305,10 @@
         <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;" id="sm-qty-label">Quantidade</label>
         <input type="number" id="sm-quantidade" placeholder="Quantidade" step="0.01" min="0.01" required>
         <div id="sm-estoque-atual" style="font-size:0.82rem; color:var(--secondary); margin:-6px 0 10px;"></div>
+        <div id="sm-custo-box" style="display:none;">
+          <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;">💲 Custo unitário (R$) <span style="color:var(--secondary);">— opcional, atualiza o custo médio</span></label>
+          <input type="number" id="sm-custo" placeholder="0,00" step="0.01" min="0">
+        </div>
         <input type="text" id="sm-motivo" placeholder="Motivo (opcional, ex: Compra fornecedor, Venda cliente João)">
         <div class="modal-actions">
           <button type="button" class="btn-danger" onclick="closeStockModal()">Cancelar</button>
@@ -534,6 +538,37 @@
     async function sbPatch(table, col, val, obj) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "PATCH", headers: { ...SB_H, "Prefer": "return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
     async function sbUpsert(table, obj, onConflict) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?on_conflict=${onConflict}`, { method: "POST", headers: { ...SB_H, "Prefer": "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(obj) }); } catch (e) {} }
     async function sbDelete(table, col, val) { try { await fetch(`${SUPA_URL}/rest/v1/${table}?${col}=eq.${val}`, { method: "DELETE", headers: { ...SB_H, "Prefer": "return=minimal" } }); } catch (e) {} }
+    async function sbRpc(fn, params) {
+      try {
+        const r = await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: SB_H, body: JSON.stringify(params || {}) });
+        if (!r.ok) return { ok: false, status: r.status };
+        const d = await r.json().catch(() => null);
+        return { ok: true, data: d };
+      } catch (e) { return { ok: false }; }
+    }
+    // Movimento de estoque ATÔMICO (RPC com trava de linha — resolve a race condition de venda simultânea).
+    // Fallback p/ o método antigo (não-atômico) enquanto a migração SQL não foi aplicada no banco.
+    async function movimentoEstoque({ productId, productNome, tipo, quantidade, custoUnit, motivo, origem, origemId, estoqueAntes }) {
+      const rpc = await sbRpc("registrar_movimento_estoque", {
+        p_product_id: productId, p_tipo: tipo, p_quantidade: quantidade,
+        p_custo_unit: custoUnit || 0, p_motivo: motivo || null,
+        p_origem: origem || "manual", p_origem_id: origemId || null,
+        p_user_name: CURRENT_USER ? CURRENT_USER.name : null, p_permitir_negativo: true
+      });
+      if (rpc.ok && rpc.data) {
+        const m = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+        if (m && m.estoque_depois != null) return { estoqueDepois: Number(m.estoque_depois), atomic: true };
+      }
+      // ---- Fallback legado (não-atômico): vale até rodar o SQL da migração ----
+      const antes = estoqueAntes != null ? estoqueAntes : 0;
+      let depois;
+      if (tipo === "entrada") depois = antes + Math.abs(quantidade);
+      else if (tipo === "saida") depois = Math.max(0, antes - Math.abs(quantidade));
+      else depois = quantidade;
+      await sbInsert("rp_stock_moves", { product_id: productId, product_nome: productNome || "", tipo, quantidade: tipo === "ajuste" ? (depois - antes) : Math.abs(quantidade), estoque_antes: antes, estoque_depois: depois, motivo: motivo || null, user_name: CURRENT_USER ? CURRENT_USER.name : null });
+      await sbPatch("rp_products", "id", productId, { estoque_atual: depois });
+      return { estoqueDepois: depois, atomic: false };
+    }
     // Busca inteligente: nome, telefone, número e mercadoria (descrição dos itens).
     function matchSearch(rec, term) {
       if (!term) return true;
@@ -1340,12 +1375,9 @@
       await sbInsert("rp_pdv_vendas", venda);
 
       for (const item of PDV_CART) {
-        const estAntes = parseFloat(item.estoque) || 0;
-        const estDepois = Math.max(0, estAntes - item.qty);
-        await sbPatch("rp_products", "id", item.id, { estoque_atual: estDepois });
-        await sbInsert("rp_stock_moves", { product_id: item.id, product_nome: item.nome, tipo: "saida", quantidade: item.qty, estoque_antes: estAntes, estoque_depois: estDepois, motivo: `Venda ${numero}`, user_name: CURRENT_USER ? CURRENT_USER.name : null });
+        const res = await movimentoEstoque({ productId: item.id, productNome: item.nome, tipo: "saida", quantidade: item.qty, motivo: `Venda ${numero}`, origem: "pdv", origemId: vendaId, estoqueAntes: parseFloat(item.estoque) || 0 });
         const idx = STATE.products.findIndex(x => x.id === item.id);
-        if (idx >= 0) STATE.products[idx].estoque_atual = estDepois;
+        if (idx >= 0) STATE.products[idx].estoque_atual = res.estoqueDepois;
       }
 
       closePdvPayModal();
@@ -1539,6 +1571,8 @@
       const tipo = document.getElementById("sm-tipo").value;
       const lbl = document.getElementById("sm-qty-label");
       const btn = document.getElementById("sm-btn-salvar");
+      const custoBox = document.getElementById("sm-custo-box");
+      if (custoBox) custoBox.style.display = tipo === "entrada" ? "" : "none";
       if (tipo === "entrada") { lbl.textContent = "Quantidade a entrar"; btn.textContent = "📥 Confirmar Entrada"; btn.style.background = "var(--success)"; }
       else if (tipo === "saida") { lbl.textContent = "Quantidade a sair"; btn.textContent = "📤 Confirmar Saída"; btn.style.background = "var(--danger)"; }
       else { lbl.textContent = "Novo estoque (valor final)"; btn.textContent = "🔧 Confirmar Ajuste"; btn.style.background = "var(--secondary)"; }
@@ -1554,14 +1588,10 @@
       const motivo = document.getElementById("sm-motivo").value.trim();
       const prod = stockSelectedProd || {};
       const estoqueAntes = parseFloat(prod.estoque_atual) || 0;
-      let estoqueDepois;
-      if (tipo === "entrada") estoqueDepois = estoqueAntes + qtd;
-      else if (tipo === "saida") estoqueDepois = Math.max(0, estoqueAntes - qtd);
-      else estoqueDepois = qtd;
+      const custoUnit = tipo === "entrada" ? (parseFloat((document.getElementById("sm-custo") || {}).value) || 0) : 0;
 
-      const move = { product_id: prodId, product_nome: prod.nome || "", tipo, quantidade: qtd, estoque_antes: estoqueAntes, estoque_depois: estoqueDepois, motivo: motivo || null, user_name: CURRENT_USER ? CURRENT_USER.name : null };
-      await sbInsert("rp_stock_moves", move);
-      await sbPatch("rp_products", "id", prodId, { estoque_atual: estoqueDepois });
+      const res = await movimentoEstoque({ productId: prodId, productNome: prod.nome || "", tipo, quantidade: qtd, custoUnit, motivo: motivo || null, origem: "manual", estoqueAntes });
+      const estoqueDepois = res.estoqueDepois;
       const idx = STATE.products.findIndex(x => x.id === prodId);
       if (idx >= 0) STATE.products[idx].estoque_atual = estoqueDepois;
       closeStockModal();
