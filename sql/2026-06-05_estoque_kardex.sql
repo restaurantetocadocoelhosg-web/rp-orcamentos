@@ -1,33 +1,26 @@
 -- =====================================================================
 -- Migração Fase 2.1 — Estoque: kardex atômico + custo médio
 -- Projeto Supabase: zuwdgyvbuaocbzckhhlm
--- Como rodar: Supabase → SQL Editor → cole tudo → Run. É idempotente.
--- Depois de rodar, o app passa AUTOMATICAMENTE a usar a baixa atômica
--- (o front detecta a RPC; até então usa o método antigo como fallback).
+-- RODAR EM 3 PASSOS SEPARADOS no SQL Editor (cole e Run um de cada vez).
+-- O editor roda em transação única; em 3 passos, um erro não desfaz os outros.
 -- =====================================================================
 
--- 1) Colunas de custo em produtos
-alter table rp_products
-  add column if not exists preco_custo numeric(12,2) default 0,
-  add column if not exists custo_medio numeric(12,4) default 0;
 
--- 2) Custo/origem no kardex
-alter table rp_stock_moves
-  add column if not exists custo_unit numeric(12,4) default 0,
-  add column if not exists origem text,
-  add column if not exists origem_id uuid;
-
--- 3) Índices
+-- ----------------------------------------------------------------- PASSO 1
+-- Colunas novas (idempotente). preco_custo já existe, então não mexemos nele.
+alter table rp_products    add column if not exists custo_medio numeric(12,4) default 0;
+alter table rp_stock_moves add column if not exists custo_unit  numeric(12,4) default 0;
+alter table rp_stock_moves add column if not exists origem      text;
+alter table rp_stock_moves add column if not exists origem_id   uuid;
 create index if not exists idx_moves_product on rp_stock_moves(product_id, created_at desc);
 
--- 4) RPC ATÔMICA: registra movimento + atualiza saldo e custo médio sob trava de linha.
---    SECURITY INVOKER (padrão): roda com a role do chamador; como a RLS de rp_products /
---    rp_stock_moves é public(true), a chave anon consegue executar. A atomicidade vem do
---    FOR UPDATE + transação implícita da função.
+
+-- ----------------------------------------------------------------- PASSO 2
+-- RPC atômica (rode SÓ DEPOIS do Passo 1, pois ela usa as colunas novas).
 create or replace function registrar_movimento_estoque(
   p_product_id uuid,
-  p_tipo text,                 -- 'entrada' | 'saida' | 'ajuste'
-  p_quantidade numeric,        -- entrada/saida: delta (>0); ajuste: saldo final desejado
+  p_tipo text,
+  p_quantidade numeric,
   p_custo_unit numeric default 0,
   p_motivo text default null,
   p_origem text default 'manual',
@@ -87,14 +80,15 @@ begin
 end;
 $$;
 
--- 5) Permissão de execução (anon = chave pública do app; authenticated p/ futuro)
-grant execute on function registrar_movimento_estoque(uuid,text,numeric,numeric,text,text,uuid,text,boolean) to anon, authenticated;
 
--- 6) Recarrega o cache de schema do PostgREST p/ a RPC aparecer na API na hora
+-- ----------------------------------------------------------------- PASSO 3
+-- Permissão + recarrega o cache da API (rode SÓ DEPOIS do Passo 2).
+grant execute on function registrar_movimento_estoque(uuid,text,numeric,numeric,text,text,uuid,text,boolean) to anon, authenticated;
 notify pgrst, 'reload schema';
 
--- =====================================================================
--- TESTE RÁPIDO (opcional) — troque o UUID por um produto real:
---   select * from registrar_movimento_estoque(
---     '00000000-0000-0000-0000-000000000000', 'entrada', 10, 2.00, 'teste', 'manual', null, 'admin');
--- =====================================================================
+
+-- ----------------------------------------------------------------- TESTE (opcional)
+-- Troque o UUID por um produto real (pegue um id na aba Produtos):
+--   select estoque_antes, estoque_depois, custo_unit
+--   from registrar_movimento_estoque(
+--     'COLE-UM-ID-AQUI'::uuid, 'entrada', 10, 2.00, 'teste', 'manual', null, 'admin');
