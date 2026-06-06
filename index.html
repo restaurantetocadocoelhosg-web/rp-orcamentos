@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v25</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v26</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -187,6 +187,7 @@
       <section id="adm" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Equipe — crie, edite ou desative os logins dos funcionários (admin vê tudo; vendedor vê só os próprios orçamentos).</div>
         <button class="btn-primary" onclick="openUserModal()">+ Novo usuário</button>
+        <button class="btn-secondary" onclick="openSobre()">ℹ️ Sobre o sistema (módulos e versões)</button>
         <div id="users-list" class="list" style="margin-top:12px;"></div>
       </section>
       <section id="pdv" class="panel">
@@ -376,6 +377,44 @@
           <button type="submit" class="btn-success">💾 Salvar</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="sobre-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>ℹ️ Sobre o sistema</h3>
+      <div style="font-size:0.85rem; color:var(--secondary); margin-bottom:10px;">RP Gestão — Casa RP Resistências · versão <b id="sobre-ver" style="color:var(--primary);"></b></div>
+
+      <div style="font-weight:700; color:var(--primary); margin:6px 0;">📦 Módulos</div>
+      <div style="font-size:0.84rem; line-height:1.7;">
+        Orçamentos (PDF + IA) · Serviço/OS · Pedidos · Clientes · Cobranças · Comissões ·
+        🤖 IA · 🛒 PDV + Caixa (sangria/conferência) · 📦 Produtos · 📊 Estoque (atômico + custo médio) ·
+        📋 Inventário · 💰 Financeiro · 📈 Relatórios · ADM (usuários/permissões).
+        <div style="color:var(--secondary); margin-top:6px;">Financeiro, Relatórios e ADM são visíveis só para o admin.</div>
+      </div>
+
+      <div style="font-weight:700; color:var(--primary); margin:12px 0 6px;">🆕 Novidades por versão</div>
+      <div style="font-size:0.82rem; line-height:1.6;">
+        <b>v26</b> — esta tela "Sobre o sistema" (módulos e versões) na aba ADM.<br>
+        <b>v25</b> — catálogo: editar não zera mais custo/estoque; categoria, margem e busca por código de barras.<br>
+        <b>v24</b> — Relatórios: lucro bruto, mais vendidos, forma de pagamento, estoque.<br>
+        <b>v23</b> — Inventário: contagem que não zera o que não foi contado.<br>
+        <b>v22</b> — Financeiro: contas a pagar/receber + saldo previsto.<br>
+        <b>v21</b> — Caixa: sangria/suprimento + fechamento com conferência.<br>
+        <b>v20</b> — Estoque atômico + custo médio (sem erro em vendas simultâneas).<br>
+        <b>v19</b> — Novo visual da marca (azul + âmbar).
+      </div>
+
+      <div style="font-weight:700; color:var(--primary); margin:12px 0 6px;">✅ Garantias</div>
+      <div style="font-size:0.82rem; line-height:1.6;">
+        Estoque em tempo real e atômico · custo médio · inventário que não zera o não contado ·
+        caixa conferido (esperado × contado) · comissão só quando o cliente paga · permissões por usuário.
+      </div>
+
+      <div style="font-size:0.75rem; color:var(--secondary); margin-top:10px;">Detalhes completos: docs/MODULOS-E-VERSOES.md no repositório.</div>
+      <div class="modal-actions">
+        <button type="button" class="btn-success" onclick="closeSobre()">Fechar</button>
+      </div>
     </div>
   </div>
 
@@ -1090,6 +1129,14 @@
       alert(`✅ Inventário ${numero} finalizado!\n${itens.length} produto(s) ajustado(s).\nDiferença total: ${totalDif >= 0 ? "+" : ""}${totalDif.toFixed(2)}`);
       const painel = document.getElementById("estoque"); if (painel && painel.classList.contains("active")) renderEstoque();
     }
+
+    // ===== Sobre o sistema =====
+    function openSobre() {
+      const v = (document.getElementById("ver-tag") || {}).textContent || "";
+      const sv = document.getElementById("sobre-ver"); if (sv) sv.textContent = v;
+      document.getElementById("sobre-modal").classList.remove("hidden");
+    }
+    function closeSobre() { document.getElementById("sobre-modal").classList.add("hidden"); }
 
     // ===== Relatórios =====
     let REL_PERIOD = 30; // dias; 0 = tudo
