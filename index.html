@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v20</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v21</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -201,9 +201,11 @@
         </div>
         <!-- Caixa aberto -->
         <div id="pdv-aberto" class="hidden">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <span style="font-size:0.82rem; color:var(--success); font-weight:600;">🟢 Caixa Aberto</span>
-            <button class="btn-secondary" style="width:auto; padding:5px 10px; font-size:0.78rem;" onclick="fecharCaixa()">🔒 Fechar Caixa</button>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:10px;">
+            <span style="font-size:0.82rem; color:var(--success); font-weight:700; flex:1; min-width:90px;">🟢 Caixa Aberto</span>
+            <button class="btn-secondary" style="width:auto; padding:5px 10px; font-size:0.76rem; margin:0;" onclick="openCaixaMov('suprimento')">➕ Suprimento</button>
+            <button class="btn-secondary" style="width:auto; padding:5px 10px; font-size:0.76rem; margin:0;" onclick="openCaixaMov('sangria')">➖ Sangria</button>
+            <button class="btn-secondary" style="width:auto; padding:5px 10px; font-size:0.76rem; margin:0;" onclick="fecharCaixa()">🔒 Fechar</button>
           </div>
           <div style="position:relative; margin-bottom:10px;">
             <input type="text" id="pdv-search" placeholder="🔍 Buscar produto para vender..." autocomplete="off" oninput="pdvSearch(this.value)" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px;">
@@ -283,6 +285,33 @@
       <div class="modal-actions">
         <button type="button" class="btn-danger" onclick="closePdvPayModal()">Cancelar</button>
         <button type="button" class="btn-success" id="pdv-pay-btn" onclick="pdvConfirmarPagamento()">✅ Confirmar Venda</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="caixa-mov-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="caixa-mov-title">Movimento de Caixa</h3>
+      <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;">Valor (R$)</label>
+      <input type="number" id="cm-valor" placeholder="0,00" step="0.01" min="0.01">
+      <input type="text" id="cm-motivo" placeholder="Motivo (ex: troco, pagto fornecedor, retirada)">
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" onclick="closeCaixaMov()">Cancelar</button>
+        <button type="button" class="btn-success" id="cm-btn" onclick="salvarCaixaMov()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="caixa-fechar-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>🔒 Fechamento de Caixa</h3>
+      <div id="cf-resumo" style="font-size:0.9rem;"></div>
+      <label style="font-size:0.85rem; color:var(--secondary); display:block; margin:12px 0 4px;">💵 Dinheiro contado na gaveta (R$)</label>
+      <input type="number" id="cf-contado" placeholder="0,00" step="0.01" min="0" oninput="cfCalcDiff()">
+      <div id="cf-diff" style="text-align:center; font-weight:700; padding:10px; border-radius:8px; margin:6px 0;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" onclick="closeFecharCaixa()">Cancelar</button>
+        <button type="button" class="btn-success" onclick="confirmarFechamento()">✅ Confirmar fechamento</button>
       </div>
     </div>
   </div>
@@ -1224,6 +1253,8 @@
     let pdvSearchTimer = null;
     let pdvSearchCache = [];
     let PDV_VENDAS_CACHE = [];
+    let CAIXA_MOV_TIPO = null;
+    let CF = null; // dados do fechamento em preparo
 
     async function renderPdvStatus() {
       PDV_CAIXA_ID = localStorage.getItem("rp_caixa_id");
@@ -1247,12 +1278,85 @@
       renderPdvStatus();
     }
 
+    // ----- Sangria (retirada) / Suprimento (reforço) -----
+    function openCaixaMov(tipo) {
+      if (!PDV_CAIXA_ID) { alert("Nenhum caixa aberto."); return; }
+      CAIXA_MOV_TIPO = tipo;
+      document.getElementById("caixa-mov-title").textContent = tipo === "sangria" ? "➖ Sangria (retirada de dinheiro)" : "➕ Suprimento (reforço de dinheiro)";
+      document.getElementById("cm-valor").value = "";
+      document.getElementById("cm-motivo").value = "";
+      const btn = document.getElementById("cm-btn");
+      btn.textContent = tipo === "sangria" ? "➖ Confirmar sangria" : "➕ Confirmar suprimento";
+      btn.style.background = tipo === "sangria" ? "var(--danger)" : "var(--success)";
+      document.getElementById("caixa-mov-modal").classList.remove("hidden");
+    }
+    function closeCaixaMov() { document.getElementById("caixa-mov-modal").classList.add("hidden"); }
+    async function salvarCaixaMov() {
+      if (!PDV_CAIXA_ID) { alert("Nenhum caixa aberto."); return; }
+      const valor = parseFloat(document.getElementById("cm-valor").value) || 0;
+      if (valor <= 0) { alert("Informe um valor maior que zero."); return; }
+      const motivo = document.getElementById("cm-motivo").value.trim() || null;
+      await sbInsert("rp_caixa_mov", { id: crypto.randomUUID(), caixa_id: PDV_CAIXA_ID, tipo: CAIXA_MOV_TIPO, valor, motivo, user_name: CURRENT_USER ? CURRENT_USER.name : null });
+      closeCaixaMov();
+      alert(`✅ ${CAIXA_MOV_TIPO === "sangria" ? "Sangria" : "Suprimento"} de R$ ${valor.toFixed(2)} registrada.`);
+    }
+
+    // ----- Fechamento com conferência (contagem física x esperado) -----
     async function fecharCaixa() {
-      if (!confirm("Fechar o caixa agora?")) return;
-      const vendas = await sbSelect("rp_pdv_vendas", `select=total_final&caixa_id=eq.${PDV_CAIXA_ID}&status=eq.finalizada`) || [];
-      const totalVendas = vendas.reduce((a, v) => a + (v.total_final || 0), 0);
-      await sbPatch("rp_caixa", "id", PDV_CAIXA_ID, { status: "fechado", valor_fechamento: totalVendas, total_vendas: totalVendas, contagem_vendas: vendas.length, closed_at: new Date().toISOString() });
-      alert(`✅ Caixa fechado!\n\n📈 Total em vendas: R$ ${totalVendas.toFixed(2)}\n🧾 Número de vendas: ${vendas.length}`);
+      if (!PDV_CAIXA_ID) return;
+      const [caixaRows, vendas, movs] = await Promise.all([
+        sbSelect("rp_caixa", `select=*&id=eq.${PDV_CAIXA_ID}`),
+        sbSelect("rp_pdv_vendas", `select=total_final,forma_pagamento&caixa_id=eq.${PDV_CAIXA_ID}&status=eq.finalizada`),
+        sbSelect("rp_caixa_mov", `select=tipo,valor&caixa_id=eq.${PDV_CAIXA_ID}`)
+      ]);
+      const caixa = (caixaRows || [])[0] || {};
+      const abertura = parseFloat(caixa.valor_abertura) || 0;
+      let dinheiro = 0, pix = 0, cartao = 0;
+      (vendas || []).forEach(v => {
+        const t = v.total_final || 0, f = v.forma_pagamento || "";
+        if (f === "dinheiro") dinheiro += t; else if (f === "pix") pix += t; else cartao += t;
+      });
+      let sangria = 0, suprimento = 0;
+      (movs || []).forEach(m => { if (m.tipo === "sangria") sangria += (m.valor || 0); else suprimento += (m.valor || 0); });
+      const totalVendas = dinheiro + pix + cartao;
+      const esperadoDinheiro = abertura + dinheiro + suprimento - sangria;
+      CF = { abertura, dinheiro, pix, cartao, sangria, suprimento, totalVendas, esperadoDinheiro, nVendas: (vendas || []).length };
+      document.getElementById("cf-resumo").innerHTML = `
+        <div style="background:var(--muted); border-radius:10px; padding:12px; line-height:1.75;">
+          🔓 Abertura: <b>R$ ${abertura.toFixed(2)}</b><br>
+          🧾 Vendas (${CF.nVendas}): <b>R$ ${totalVendas.toFixed(2)}</b><br>
+          &nbsp;&nbsp;💵 Dinheiro: R$ ${dinheiro.toFixed(2)} · 💳 Pix: R$ ${pix.toFixed(2)} · Cartão: R$ ${cartao.toFixed(2)}<br>
+          ➕ Suprimentos: R$ ${suprimento.toFixed(2)} · ➖ Sangrias: R$ ${sangria.toFixed(2)}<br>
+          <span style="color:var(--primary); font-weight:700;">📦 Esperado na gaveta (dinheiro): R$ ${esperadoDinheiro.toFixed(2)}</span>
+        </div>`;
+      document.getElementById("cf-contado").value = "";
+      const diffEl = document.getElementById("cf-diff"); diffEl.textContent = ""; diffEl.style.background = "";
+      document.getElementById("caixa-fechar-modal").classList.remove("hidden");
+    }
+    function closeFecharCaixa() { document.getElementById("caixa-fechar-modal").classList.add("hidden"); }
+    function cfCalcDiff() {
+      if (!CF) return;
+      const el = document.getElementById("cf-diff"), raw = document.getElementById("cf-contado").value;
+      if (raw === "") { el.textContent = ""; el.style.background = ""; return; }
+      const diff = (parseFloat(raw) || 0) - CF.esperadoDinheiro;
+      if (Math.abs(diff) < 0.005) { el.textContent = "✅ Caixa bate certinho"; el.style.background = "#DCFCE7"; el.style.color = "#15803D"; }
+      else if (diff > 0) { el.textContent = `🔵 Sobra: R$ ${diff.toFixed(2)}`; el.style.background = "#DBEAFE"; el.style.color = "#1D4ED8"; }
+      else { el.textContent = `🔴 Falta: R$ ${Math.abs(diff).toFixed(2)}`; el.style.background = "#FEE2E2"; el.style.color = "#B91C1C"; }
+    }
+    async function confirmarFechamento() {
+      if (!CF || !PDV_CAIXA_ID) return;
+      const raw = document.getElementById("cf-contado").value;
+      if (raw === "" || isNaN(parseFloat(raw))) { alert("Informe o valor contado em dinheiro."); return; }
+      const contado = parseFloat(raw), diferenca = contado - CF.esperadoDinheiro;
+      await sbPatch("rp_caixa", "id", PDV_CAIXA_ID, {
+        status: "fechado", valor_fechamento: CF.esperadoDinheiro, total_vendas: CF.totalVendas, contagem_vendas: CF.nVendas,
+        valor_contado: contado, diferenca, total_dinheiro: CF.dinheiro, total_pix: CF.pix, total_cartao: CF.cartao,
+        total_sangria: CF.sangria, total_suprimento: CF.suprimento, closed_at: new Date().toISOString()
+      });
+      closeFecharCaixa();
+      const dtxt = Math.abs(diferenca) < 0.005 ? "✅ Bateu certinho" : (diferenca > 0 ? `🔵 Sobra R$ ${diferenca.toFixed(2)}` : `🔴 Falta R$ ${Math.abs(diferenca).toFixed(2)}`);
+      alert(`✅ Caixa fechado!\n\nVendas: R$ ${CF.totalVendas.toFixed(2)} (${CF.nVendas})\nEsperado em dinheiro: R$ ${CF.esperadoDinheiro.toFixed(2)}\nContado: R$ ${contado.toFixed(2)}\n${dtxt}`);
+      CF = null;
       PDV_CAIXA_ID = null;
       localStorage.removeItem("rp_caixa_id");
       renderPdvStatus();
