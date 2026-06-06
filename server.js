@@ -194,5 +194,44 @@ app.post('/api/assist', async (req, res) => {
 app.post('/api/robo-run', requireAdmin, async (req, res) => { try { res.json(await robo.runOnce()); } catch (e) { res.status(500).json({ error: e.message }); } });
 
 app.get('/api/health', (req, res) => res.json({ ok: true, ia: !!ANTHROPIC_API_KEY, robo: robo.ready() }));
+
+// ========== NF-e (portado da versão casarp-orcamentos) ==========
+let nfeModule = null;
+try { nfeModule = require('./nfe/index'); console.log('NF-e modulo carregado | Ambiente:', nfeModule.TP_AMB === 1 ? 'PRODUCAO' : 'HOMOLOGACAO'); } catch (e) { console.log('NF-e modulo nao carregado:', e.message); }
+
+app.get('/api/nfe/ambiente', (req, res) => {
+  if (!nfeModule) return res.status(503).json({ error: 'Modulo NF-e nao disponivel.' });
+  const amb = nfeModule.TP_AMB === 1 ? 'PRODUCAO' : 'HOMOLOGACAO';
+  res.json({ ok: true, ambiente: amb, tpAmb: nfeModule.TP_AMB });
+});
+
+app.post('/api/nfe/emitir', async (req, res) => {
+  if (!nfeModule) return res.status(503).json({ error: 'Modulo NF-e nao disponivel.' });
+  if (!req.user) return res.status(401).json({ error: 'Nao autenticado.' });
+  try { res.json(await nfeModule.emitir(req.body)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/nfe/danfe/:chave', (req, res) => {
+  const chave = req.params.chave;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="danfe-${chave}.pdf"`);
+  const nfe = nfeModule || {};
+  const cached = nfe.getDanfe && nfe.getDanfe(chave);
+  if (cached) return res.send(cached);
+  const p = require('path').join(__dirname, 'data', 'danfe', `${chave}-danfe.pdf`);
+  if (require('fs').existsSync(p)) return require('fs').createReadStream(p).pipe(res);
+  res.status(404).json({ error: 'DANFE nao encontrada. Reemita a NF-e.' });
+});
+
+app.get('/api/nfe/xml/:chave', (req, res) => {
+  const p = require('path').join(__dirname, 'data', 'nfe', `${req.params.chave}-nfe.xml`);
+  if (!require('fs').existsSync(p)) return res.status(404).json({ error: 'XML nao encontrado.' });
+  res.setHeader('Content-Type', 'application/xml');
+  res.setHeader('Content-Disposition', `attachment; filename="${req.params.chave}-nfe.xml"`);
+  require('fs').createReadStream(p).pipe(res);
+});
+// ========== Fim NF-e ==========
+
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.listen(PORT, () => { console.log('RP Orçamentos na porta ' + PORT + ' | IA: ' + (!!ANTHROPIC_API_KEY)); try { robo.init(); } catch (e) { console.log('robo init erro', e.message); } });
