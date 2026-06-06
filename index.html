@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>RP Orçamentos - Casa RP Resistências</title>
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#5C4033">
+  <meta name="theme-color" content="#1B3A6B">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -15,68 +15,115 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     :root {
-      --bg: #FDF6E3; --card: #FFFFFF; --primary: #5C4033; --secondary: #8B7355;
-      --success: #2E8B57; --danger: #C0392B; --text: #2C3E50; --border: #D2B48C;
-      --shadow: 0 4px 12px rgba(0,0,0,0.08);
+      /* Identidade Casa RP — azul-marinho elétrico (igual ao logo/PDF) + âmbar de "calor" */
+      --bg: #EDF1F7; --card: #FFFFFF; --primary: #1B3A6B; --primary-dark: #102747;
+      --secondary: #5B6B85; --accent: #F59E0B; --accent-dark: #D97706;
+      --success: #16A34A; --danger: #DC2626; --text: #14213D; --border: #DCE4F0;
+      --muted: #F1F5FB;
+      --shadow: 0 6px 18px rgba(16,39,71,0.08); --shadow-sm: 0 2px 6px rgba(16,39,71,0.06);
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background: var(--bg); color: var(--text); min-height: 100vh; padding-top: env(safe-area-inset-top); padding-bottom: calc(80px + env(safe-area-inset-bottom)); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-    .splash { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 999; transition: opacity 0.5s; }
+
+    /* ===== Selo da marca (recriado em CSS, igual ao badge navy do PDF) ===== */
+    .badge { width: 56px; height: 56px; min-width: 56px; border-radius: 50%; background: #FFF; border: 2.5px solid var(--accent); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+    .badge .b-top { font-size: 0.46rem; font-weight: 700; letter-spacing: 0.5px; color: var(--primary); }
+    .badge .b-rp { font-size: 1.15rem; font-weight: 800; color: var(--primary); margin: -1px 0; }
+    .badge .b-bot { font-size: 0.32rem; font-weight: 700; letter-spacing: 0.6px; color: var(--accent-dark); }
+
+    /* ===== Splash ===== */
+    .splash { position: fixed; inset: 0; background: linear-gradient(160deg, #1B3A6B 0%, #102747 100%); display: flex; align-items: center; justify-content: center; z-index: 999; transition: opacity 0.5s; }
     .splash-logo { text-align: center; }
-    .splash-logo img { width: 100px; height: 100px; border-radius: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
-    .splash-logo h1 { font-size: 1.4rem; color: var(--primary); }
-    .splash-logo p { color: var(--secondary); margin-top: 8px; font-size: 0.9rem; }
-    .app { padding: 16px; max-width: 600px; margin: 0 auto; }
+    .splash-logo .badge { width: 96px; height: 96px; min-width: 96px; margin: 0 auto 18px; border-width: 4px; }
+    .splash-logo .badge .b-top { font-size: 0.8rem; } .splash-logo .badge .b-rp { font-size: 2rem; } .splash-logo .badge .b-bot { font-size: 0.54rem; }
+    .splash-logo h1 { font-size: 1.4rem; color: #FFF; letter-spacing: 0.3px; }
+    .splash-logo p { color: #AFC4E6; margin-top: 8px; font-size: 0.9rem; }
+
+    .app { padding: 14px; max-width: 620px; margin: 0 auto; }
     .hidden { display: none !important; }
-    .header { text-align: center; margin-bottom: 16px; }
-    .header h2 { font-size: 1.3rem; color: var(--primary); }
-    .header span { font-size: 0.8rem; color: var(--secondary); }
-    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; background: var(--card); padding: 6px; border-radius: 12px; box-shadow: var(--shadow); }
-    .tab { flex: 1 1 auto; min-width: 0; padding: 9px 8px; border: none; background: transparent; font-weight: 500; font-size: 0.82rem; color: var(--secondary); border-radius: 8px; cursor: pointer; transition: 0.2s; white-space: nowrap; }
-    .tab.active { background: var(--primary); color: #FFF; }
-    .panel { display: none; }
+
+    /* ===== Cabeçalho ===== */
+    .header { background: linear-gradient(135deg, #1B3A6B 0%, #142E58 100%); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow); color: #FFF; }
+    .header-top { display: flex; align-items: center; gap: 12px; }
+    .header-id { flex: 1; min-width: 0; }
+    .header-id h2 { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.2px; line-height: 1.15; }
+    .header-id .tagline { font-size: 0.68rem; color: #AFC4E6; margin-top: 2px; }
+    #company-tag { display: none; }
+    #ver-tag { font-size: 0.6rem; opacity: 0.45; color: #AFC4E6; }
+    .header-user { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.12); }
+    #user-tag { flex: 1; font-size: 0.78rem; color: #E7EEFA; }
+    .btn-sair { margin: 0; width: auto; padding: 6px 14px; font-size: 0.78rem; font-weight: 700; background: rgba(255,255,255,0.94); color: var(--primary); border: 0; border-radius: 8px; cursor: pointer; }
+
+    /* ===== Abas ===== */
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; background: var(--card); padding: 6px; border-radius: 14px; box-shadow: var(--shadow-sm); }
+    .tab { flex: 1 1 auto; min-width: 0; padding: 9px 10px; border: none; background: transparent; font-weight: 600; font-size: 0.82rem; color: var(--secondary); border-radius: 9px; cursor: pointer; transition: 0.18s; white-space: nowrap; }
+    .tab:active { transform: scale(0.96); }
+    .tab.active { background: var(--primary); color: #FFF; box-shadow: 0 2px 8px rgba(27,58,107,0.28); }
+    .panel { display: none; animation: fade 0.25s ease; }
     .panel.active { display: block; }
-    .btn-primary, .btn-secondary, .btn-success, .btn-danger { width: 100%; padding: 12px; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; margin-bottom: 12px; }
-    .btn-primary { background: var(--primary); color: #FFF; }
-    .btn-secondary { background: var(--border); color: var(--text); }
-    .btn-success { background: var(--success); color: #FFF; }
+    @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    /* ===== Botões ===== */
+    .btn-primary, .btn-secondary, .btn-success, .btn-danger { width: 100%; padding: 13px; border: none; border-radius: 11px; font-weight: 700; font-size: 0.92rem; cursor: pointer; margin-bottom: 12px; transition: 0.15s; }
+    .btn-primary:active, .btn-secondary:active, .btn-success:active, .btn-danger:active { transform: scale(0.985); filter: brightness(0.97); }
+    .btn-primary { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); color: #FFF; box-shadow: 0 4px 12px rgba(27,58,107,0.22); }
+    .btn-secondary { background: #EEF2F9; color: var(--primary); border: 1px solid var(--border); }
+    .btn-success { background: var(--success); color: #FFF; box-shadow: 0 4px 12px rgba(22,163,74,0.22); }
     .btn-danger { background: var(--danger); color: #FFF; }
-    .list { display: flex; flex-direction: column; gap: 10px; }
-    .card { background: var(--card); padding: 14px; border-radius: 12px; box-shadow: var(--shadow); border-left: 4px solid var(--primary); }
-    .card h4 { font-size: 1rem; margin-bottom: 4px; }
-    .card p { font-size: 0.85rem; color: #666; margin-bottom: 6px; }
-    .card .status { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: #EEE; }
-    .status.aprovado { background: #D4EDDA; color: #155724; }
-    .status.fabricacao { background: #FFF3CD; color: #856404; }
-    .status.pronto { background: #D1ECF1; color: #0C5460; }
-    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal-content { background: var(--card); padding: 20px; border-radius: 16px; width: 90%; max-width: 500px; max-height: 85vh; overflow-y: auto; }
-    .modal-content h3 { margin-bottom: 16px; color: var(--primary); }
-    .modal-content input, .modal-content select { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; }
+    .btn-accent { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%); color: #FFF; box-shadow: 0 4px 12px rgba(245,158,11,0.28); }
+
+    /* ===== Cards ===== */
+    .list { display: flex; flex-direction: column; gap: 11px; }
+    .card { background: var(--card); padding: 14px 15px; border-radius: 14px; box-shadow: var(--shadow-sm); border: 1px solid var(--border); border-left: 4px solid var(--primary); }
+    .card h4 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; color: var(--text); }
+    .card p { font-size: 0.85rem; color: var(--secondary); margin-bottom: 6px; }
+    .card .status { display: inline-block; padding: 4px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; background: #EEF2F9; color: var(--secondary); }
+    .status.aprovado { background: #DCFCE7; color: #15803D; }
+    .status.fabricacao, .status.em_fabricacao { background: #FEF3C7; color: #B45309; }
+    .status.pronto, .status.pronto_retirada { background: #DBEAFE; color: #1D4ED8; }
+    .status.em_estoque { background: #E0E7FF; color: #4338CA; }
+    .status.em_analise { background: #F1F5F9; color: #475569; }
+
+    /* ===== Inputs / busca ===== */
+    input[type="text"], input[type="tel"], input[type="number"], input[type="date"], textarea, select { font-size: 0.92rem; }
+    input[type="text"]:focus, input[type="tel"]:focus, input[type="number"]:focus, input[type="date"]:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(27,58,107,0.12); }
+    #quote-search, #order-search, #service-search, #client-search { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--card); margin-bottom: 12px; }
+
+    /* ===== Modal ===== */
+    .modal { position: fixed; inset: 0; background: rgba(16,39,71,0.55); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal-content { background: var(--card); padding: 22px; border-radius: 18px; width: 92%; max-width: 500px; max-height: 88vh; overflow-y: auto; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
+    .modal-content h3 { margin-bottom: 16px; color: var(--primary); font-size: 1.15rem; }
+    .modal-content input, .modal-content select { width: 100%; padding: 11px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 10px; }
     .item-row { display: flex; gap: 8px; margin-bottom: 8px; }
     .item-row input:first-child { flex: 2; }
     .item-row input { flex: 1; }
     .modal-actions { display: flex; gap: 10px; margin-top: 10px; }
-    .fab { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 24px; width: 56px; height: 56px; background: #25D366; color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 12px rgba(37,211,102,0.4); text-decoration: none; z-index: 90; }
-    #client-search { margin-bottom: 12px; }
+    .fab { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom)); right: 22px; width: 58px; height: 58px; background: #25D366; color: #FFF; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 25px; box-shadow: 0 6px 16px rgba(37,211,102,0.45); text-decoration: none; z-index: 90; }
+    .fab:active { transform: scale(0.92); }
   </style>
 </head>
 <body>
   <div id="splash" class="splash">
     <div class="splash-logo">
-      <img src="icons/icon-192.png" alt="Logo RP">
+      <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
       <h1>Casa RP Resistências</h1>
-      <p>Carregando sistema...</p>
+      <p>Carregando o sistema…</p>
     </div>
   </div>
 
   <div id="app" class="app hidden">
     <header class="header">
-      <h2>📋 Orçamentos & Pedidos</h2>
-      <span id="company-tag">Casa RP Resistências</span> <span id="ver-tag" style="font-size:0.62rem; opacity:0.45;">v18</span>
-      <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
-        <span id="user-tag" style="font-size:0.78rem; opacity:0.95;"></span>
-        <button onclick="logout()" style="margin:0; width:auto; padding:5px 14px; font-size:0.8rem; font-weight:600; background:#fff; color:#1B3A6B; border:0; border-radius:8px; cursor:pointer;">🚪 Sair</button>
+      <div class="header-top">
+        <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
+        <div class="header-id">
+          <h2>Casa RP Resistências <span id="ver-tag">v19</span></h2>
+          <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
+          <span id="company-tag">Casa RP Resistências</span>
+        </div>
+      </div>
+      <div class="header-user">
+        <span id="user-tag"></span>
+        <button class="btn-sair" onclick="logout()">🚪 Sair</button>
       </div>
     </header>
     <nav class="tabs">
@@ -133,7 +180,7 @@
         </div>
         <textarea id="assist-input" rows="2" placeholder="Ex: o cliente Renato já confirmou o orçamento? quanto fechei esse mês?" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;"></textarea>
         <button class="btn-primary" onclick="perguntarIA()">🤖 Perguntar</button>
-        <div id="assist-resp" style="margin-top:12px; white-space:pre-wrap; font-size:0.9rem; background:#FFF8E7; border:1px solid var(--border); border-radius:10px; padding:12px; display:none;"></div>
+        <div id="assist-resp" style="margin-top:12px; white-space:pre-wrap; font-size:0.9rem; background:var(--muted); border:1px solid var(--border); border-radius:10px; padding:12px; display:none;"></div>
       </section>
       <section id="adm" class="panel">
         <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:10px;">Equipe — crie, edite ou desative os logins dos funcionários (admin vê tudo; vendedor vê só os próprios orçamentos).</div>
@@ -225,7 +272,7 @@
   <div id="pdv-pay-modal" class="modal hidden">
     <div class="modal-content">
       <h3 id="pdv-pay-title">Pagamento</h3>
-      <div id="pdv-pay-total-display" style="text-align:center; font-size:1.6rem; font-weight:700; color:var(--primary); margin:12px 0 16px; padding:10px; background:#FFF8E7; border-radius:10px;"></div>
+      <div id="pdv-pay-total-display" style="text-align:center; font-size:1.6rem; font-weight:700; color:var(--primary); margin:12px 0 16px; padding:10px; background:#F1F5FB; border-radius:10px;"></div>
       <input type="text" id="pdv-pay-cliente" placeholder="Nome do cliente (opcional)">
       <div id="pdv-pay-dinheiro-box" class="hidden">
         <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:6px;">Valor recebido (R$):</label>
@@ -248,7 +295,7 @@
         <input type="text" id="sm-prod-search" placeholder="🔍 Digite para buscar produto..." autocomplete="off" oninput="searchProdForStock(this.value)">
         <div id="sm-prod-results" style="background:#fff; border:1px solid var(--border); border-radius:8px; max-height:160px; overflow-y:auto; display:none; margin-top:-8px; margin-bottom:10px;"></div>
         <input type="hidden" id="sm-prod-id">
-        <div id="sm-prod-selected" style="font-size:0.88rem; font-weight:600; color:var(--primary); padding:8px; background:#FFF8E7; border-radius:8px; margin-bottom:10px; display:none;"></div>
+        <div id="sm-prod-selected" style="font-size:0.88rem; font-weight:600; color:var(--primary); padding:8px; background:#F1F5FB; border-radius:8px; margin-bottom:10px; display:none;"></div>
         <label style="font-size:0.85rem; color:var(--secondary); display:block; margin-bottom:4px;">Tipo de movimento</label>
         <select id="sm-tipo" style="width:100%; padding:10px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px;" onchange="updateStockTipo()">
           <option value="entrada">📥 Entrada (compra, fabricação, devolução)</option>
@@ -297,7 +344,7 @@
     <div class="modal-content">
       <h3>Novo Orçamento</h3>
       <form id="quote-form">
-        <div id="ia-box" style="background:#FFF8E7; border:1px dashed var(--border); border-radius:10px; padding:10px; margin-bottom:12px;">
+        <div id="ia-box" style="background:var(--muted); border:1px dashed var(--primary); border-radius:10px; padding:10px; margin-bottom:12px;">
           <div style="font-size:0.82rem; font-weight:600; color:var(--primary); margin-bottom:6px;">🤖 Preencher com IA</div>
           <textarea id="ia-input" rows="3" placeholder="Descreva o pedido. Ex: Cliente Jurandir 21 96598-7979 — 5 resistências de imersão tubo cobre 8mm formato U 400mm 2000W 220V; 2 termostatos bulbo 20-120°C" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px;"></textarea>
           <button type="button" class="btn-secondary" style="margin-bottom:0;" onclick="preencherIA(this)">✨ Gerar itens com IA</button>
@@ -1187,7 +1234,7 @@
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
         res.innerHTML = rows.map((p, i) => `
-          <div onclick="pdvAddItem(pdvSearchCache[${i}])" style="padding:10px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;" onmouseover="this.style.background='#FFF8E7'" onmouseout="this.style.background=''">
+          <div onclick="pdvAddItem(pdvSearchCache[${i}])" style="padding:10px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;" onmouseover="this.style.background='#F1F5FB'" onmouseout="this.style.background=''">
             <div><b>${(p.nome||"").replace(/</g,"&lt;")}</b>${p.codigo ? " · " + p.codigo : ""}<br><span style="font-size:0.75rem; color:var(--secondary);">Estoque: ${p.estoque_atual||0} ${p.unidade||"UN"}</span></div>
             <span style="color:var(--primary); font-weight:700; white-space:nowrap;">R$ ${(p.preco_venda||0).toFixed(2)}</span>
           </div>`).join("");
@@ -1450,7 +1497,7 @@
         const rows = await sbSelect("rp_products", `select=id,codigo,nome,preco_venda,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=10`) || [];
         if (!rows.length) { res.style.display = "none"; return; }
         res.style.display = "block";
-        res.innerHTML = rows.map(p => `<div onclick="selectStockProd(${JSON.stringify(p).replace(/'/g,"&#39;")})" style="padding:8px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee;" onmouseover="this.style.background='#FFF8E7'" onmouseout="this.style.background=''">
+        res.innerHTML = rows.map(p => `<div onclick="selectStockProd(${JSON.stringify(p).replace(/'/g,"&#39;")})" style="padding:8px 12px; cursor:pointer; font-size:0.88rem; border-bottom:1px solid #eee;" onmouseover="this.style.background='#F1F5FB'" onmouseout="this.style.background=''">
           <b>${(p.nome||"").replace(/</g,"&lt;")}</b>${p.codigo ? " · " + p.codigo : ""} <span style="color:var(--secondary);">· Estoque: ${p.estoque_atual||0} ${p.unidade||"UN"}</span>
         </div>`).join("");
       }, 300);

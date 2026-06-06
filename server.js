@@ -46,21 +46,24 @@ const LOGIN_HTML = `<!doctype html><html lang="pt-BR"><head>
 <link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1B3A6B">
 <style>
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#FDF6E3;padding:24px}
-.card{width:100%;max-width:360px;background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:28px 24px;text-align:center}
-.logo{width:84px;height:84px;border-radius:50%;background:#1B3A6B;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.7rem;line-height:1.1;margin:0 auto 14px;padding:8px;text-align:center}
-h1{font-size:1.1rem;color:#1B3A6B;margin-bottom:4px}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#1B3A6B 0%,#102747 100%);padding:24px}
+.card{width:100%;max-width:360px;background:#fff;border-radius:20px;box-shadow:0 18px 50px rgba(0,0,0,.35);padding:30px 24px;text-align:center}
+.logo{width:88px;height:88px;border-radius:50%;background:#fff;border:4px solid #F59E0B;color:#1B3A6B;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;margin:0 auto 16px;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.logo .t{font-size:.62rem;font-weight:700;letter-spacing:.5px}
+.logo .r{font-size:1.7rem;font-weight:800;margin:-1px 0}
+.logo .s{font-size:.42rem;font-weight:700;letter-spacing:.6px;color:#D97706}
+h1{font-size:1.15rem;color:#1B3A6B;margin-bottom:4px}
 p.sub{font-size:.8rem;color:#777;margin-bottom:18px}
 input{width:100%;padding:13px 14px;margin-bottom:12px;border:1px solid #ddd;border-radius:10px;font-size:1rem}
-input:focus{outline:none;border-color:#1B3A6B}
-button{width:100%;padding:13px;border:0;border-radius:10px;background:#1B3A6B;color:#fff;font-size:1rem;font-weight:600;cursor:pointer}
+input:focus{outline:none;border-color:#1B3A6B;box-shadow:0 0 0 3px rgba(27,58,107,.12)}
+button{width:100%;padding:13px;border:0;border-radius:10px;background:linear-gradient(135deg,#1B3A6B,#102747);color:#fff;font-size:1rem;font-weight:700;cursor:pointer}
 button:disabled{opacity:.6}
 .err{color:#c0392b;font-size:.85rem;min-height:18px;margin-bottom:8px}
 </style></head><body>
 <form class="card" id="f">
-  <div class="logo">CASA RP<br>RESISTÊNCIAS</div>
-  <h1>Orçamentos Casa RP</h1>
-  <p class="sub">Entre para continuar</p>
+  <div class="logo"><span class="t">CASA</span><span class="r">RP</span><span class="s">RESISTÊNCIAS</span></div>
+  <h1>Casa RP Resistências</h1>
+  <p class="sub">Entre para acessar o PDV</p>
   <div class="err" id="err"></div>
   <input id="u" name="user" placeholder="Usuário" autocapitalize="none" autocomplete="username" required>
   <input id="p" name="pass" type="password" placeholder="Senha" autocomplete="current-password" required>
