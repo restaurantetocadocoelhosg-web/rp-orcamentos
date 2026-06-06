@@ -116,7 +116,7 @@
       <div class="header-top">
         <div class="badge"><span class="b-top">CASA</span><span class="b-rp">RP</span><span class="b-bot">RESISTÊNCIAS</span></div>
         <div class="header-id">
-          <h2>Casa RP Resistências <span id="ver-tag">v22</span></h2>
+          <h2>Casa RP Resistências <span id="ver-tag">v23</span></h2>
           <div class="tagline">PDV · Orçamentos · Pedidos · Ordens de Serviço</div>
           <span id="company-tag">Casa RP Resistências</span>
         </div>
@@ -255,8 +255,9 @@
       </section>
       <section id="estoque" class="panel">
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-          <button class="btn-primary" style="flex:1;" onclick="openStockModal()">📥 Entrada / 📤 Saída</button>
-          <button class="btn-secondary" style="flex:1;" onclick="renderEstoque('baixo')">⚠️ Estoque Baixo</button>
+          <button class="btn-primary" style="flex:1 1 140px;" onclick="openStockModal()">📥 Entrada / 📤 Saída</button>
+          <button class="btn-secondary" style="flex:1 1 110px;" onclick="renderEstoque('baixo')">⚠️ Estoque Baixo</button>
+          <button class="btn-secondary" style="flex:1 1 110px;" onclick="openInventario()">📋 Inventário</button>
         </div>
         <div id="estoque-alertas"></div>
         <div style="font-size:0.85rem; font-weight:600; color:var(--primary); margin:10px 0 6px;">📋 Últimos movimentos</div>
@@ -323,6 +324,23 @@
       <div class="modal-actions">
         <button type="button" class="btn-danger" onclick="closeFecharCaixa()">Cancelar</button>
         <button type="button" class="btn-success" onclick="confirmarFechamento()">✅ Confirmar fechamento</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="inv-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>📋 Inventário — contagem física</h3>
+      <div style="font-size:0.8rem; color:var(--secondary); margin-bottom:8px;">Busque e adicione os produtos que você contou e informe a quantidade física. Só os itens contados serão ajustados — o que <b>não</b> for contado <b>não é zerado</b>.</div>
+      <div style="position:relative;">
+        <input type="text" id="inv-search" placeholder="🔍 Buscar produto para contar..." autocomplete="off" oninput="invSearch(this.value)">
+        <div id="inv-results" style="position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid var(--border); border-radius:0 0 10px 10px; max-height:180px; overflow-y:auto; z-index:50; display:none; box-shadow:var(--shadow);"></div>
+      </div>
+      <div id="inv-lines" style="margin-top:8px;"></div>
+      <div id="inv-resumo" style="font-size:0.84rem; color:var(--secondary); margin:8px 0;"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-danger" onclick="closeInventario()">Cancelar</button>
+        <button type="button" class="btn-success" onclick="finalizarInventario()">✅ Finalizar e ajustar</button>
       </div>
     </div>
   </div>
@@ -990,6 +1008,73 @@
       if (!confirm(`Marcar a comissão do pedido ${o.number} como PAGA (Pix)?`)) return;
       o.commissionStatus = "pago"; o.commissionPaidAt = new Date().toISOString();
       await sbPatch("rp_orders", "id", o.id, { data: o }); cacheSave(); renderComissoes();
+    }
+
+    // ===== Inventário (contagem física) =====
+    let INV_LINES = [];
+    let invSearchTimer = null;
+    function openInventario() {
+      INV_LINES = [];
+      document.getElementById("inv-search").value = "";
+      document.getElementById("inv-results").style.display = "none";
+      renderInvLines();
+      document.getElementById("inv-modal").classList.remove("hidden");
+    }
+    function closeInventario() { document.getElementById("inv-modal").classList.add("hidden"); }
+    async function invSearch(q) {
+      clearTimeout(invSearchTimer);
+      const box = document.getElementById("inv-results");
+      if (!q || q.trim().length < 2) { box.style.display = "none"; return; }
+      invSearchTimer = setTimeout(async () => {
+        const s = encodeURIComponent(q.trim());
+        const rows = await sbSelect("rp_products", `select=id,codigo,nome,estoque_atual,unidade&or=(nome.ilike.*${s}*,codigo.ilike.*${s}*)&ativo=eq.true&order=nome.asc&limit=8`) || [];
+        if (!rows.length) { box.style.display = "none"; return; }
+        box.innerHTML = rows.map(p => `<div onclick='invAdd(${JSON.stringify(p).replace(/'/g, "&#39;")})' style="padding:9px 12px; cursor:pointer; font-size:0.85rem; border-bottom:1px solid #eee;">${(p.nome || "").replace(/</g, "&lt;")}${p.codigo ? (" · " + p.codigo) : ""} <span style="color:var(--secondary);">· sist: ${p.estoque_atual || 0} ${p.unidade || "UN"}</span></div>`).join("");
+        box.style.display = "block";
+      }, 250);
+    }
+    function invAdd(p) {
+      document.getElementById("inv-results").style.display = "none";
+      document.getElementById("inv-search").value = "";
+      if (INV_LINES.find(l => l.id === p.id)) return;
+      INV_LINES.push({ id: p.id, nome: p.nome, sistema: parseFloat(p.estoque_atual) || 0, unidade: p.unidade || "UN", contado: "" });
+      renderInvLines();
+    }
+    function invSetContado(id, val) { const l = INV_LINES.find(x => x.id === id); if (l) l.contado = val; renderInvResumo(); }
+    function invRemove(id) { INV_LINES = INV_LINES.filter(x => x.id !== id); renderInvLines(); }
+    function renderInvLines() {
+      const c = document.getElementById("inv-lines");
+      if (!INV_LINES.length) { c.innerHTML = '<p style="text-align:center; color:var(--secondary); padding:10px; font-size:0.85rem;">Nenhum item adicionado ainda.</p>'; renderInvResumo(); return; }
+      c.innerHTML = INV_LINES.map(l => `<div style="display:flex; gap:6px; align-items:center; border-bottom:1px solid var(--border); padding:6px 0;">
+        <div style="flex:1; min-width:0; font-size:0.82rem;"><b>${(l.nome || "").replace(/</g, "&lt;")}</b><br><span style="color:var(--secondary);">sistema: ${l.sistema} ${l.unidade}</span></div>
+        <input type="number" step="0.01" min="0" value="${l.contado}" placeholder="contado" oninput="invSetContado('${l.id}', this.value)" style="width:82px; padding:6px; border:1px solid var(--border); border-radius:6px; font-size:0.85rem;">
+        <span onclick="invRemove('${l.id}')" style="cursor:pointer; color:var(--danger); font-weight:700;">✕</span>
+      </div>`).join("");
+      renderInvResumo();
+    }
+    function renderInvResumo() {
+      const el = document.getElementById("inv-resumo"); if (!el) return;
+      const contados = INV_LINES.filter(l => l.contado !== "" && !isNaN(parseFloat(l.contado)));
+      let dif = 0; contados.forEach(l => { dif += (parseFloat(l.contado) - l.sistema); });
+      el.textContent = `${contados.length} item(ns) contado(s) · diferença total: ${dif >= 0 ? "+" : ""}${dif.toFixed(2)}`;
+    }
+    async function finalizarInventario() {
+      const contados = INV_LINES.filter(l => l.contado !== "" && !isNaN(parseFloat(l.contado)));
+      if (!contados.length) { alert("Adicione e conte ao menos um produto."); return; }
+      if (!confirm(`Ajustar o estoque de ${contados.length} produto(s) para o valor contado?\nOs produtos NÃO contados não serão alterados.`)) return;
+      const numero = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+      const itens = [];
+      for (const l of contados) {
+        const contado = parseFloat(l.contado);
+        await movimentoEstoque({ productId: l.id, productNome: l.nome, tipo: "ajuste", quantidade: contado, motivo: `Inventário ${numero}`, origem: "inventario" });
+        itens.push({ product_id: l.id, nome: l.nome, sistema: l.sistema, contado, diferenca: contado - l.sistema });
+        if (STATE.products) { const idx = STATE.products.findIndex(x => x.id === l.id); if (idx >= 0) STATE.products[idx].estoque_atual = contado; }
+      }
+      const totalDif = itens.reduce((s, i) => s + i.diferenca, 0);
+      await sbInsert("rp_inventarios", { id: crypto.randomUUID(), numero, itens, total_itens: itens.length, total_diferenca: totalDif, user_name: CURRENT_USER ? CURRENT_USER.name : null });
+      closeInventario();
+      alert(`✅ Inventário ${numero} finalizado!\n${itens.length} produto(s) ajustado(s).\nDiferença total: ${totalDif >= 0 ? "+" : ""}${totalDif.toFixed(2)}`);
+      const painel = document.getElementById("estoque"); if (painel && painel.classList.contains("active")) renderEstoque();
     }
 
     // ===== Financeiro (Contas a Pagar / Receber) =====
