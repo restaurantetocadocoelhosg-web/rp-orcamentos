@@ -18,6 +18,13 @@ const KEY_RE = /or[çc]amento|resist[êe]ncia|pre[çc]o|cota[çc][ãa]o|niple|tu
 function ready() { return !!(GMAIL_USER && GMAIL_PASS); }
 function log(...a) { console.log('[robo]', ...a); }
 
+// Normaliza telefone: remove DDI 55 se presente, deixa apenas DDD+numero (10 ou 11 digitos)
+function normPhone(raw) {
+  let d = String(raw || '').replace(/\D/g, '');
+  if ((d.length === 12 || d.length === 13) && d.startsWith('55')) d = d.slice(2);
+  return d;
+}
+
 let ImapFlow, simpleParser, nodemailer, cron;
 try {
   ImapFlow = require('imapflow').ImapFlow;
@@ -61,7 +68,7 @@ async function criarOrcamento(p, fromText, msgId) {
   const id = crypto.randomUUID();
   const quote = {
     id, number,
-    client: { name: (p.cliente && p.cliente.nome) || fromText || '(via e-mail)', phone: String((p.cliente && p.cliente.telefone) || '').replace(/\D/g, '') },
+    client: { name: (p.cliente && p.cliente.nome) || fromText || '(via e-mail)', phone: normPhone((p.cliente && p.cliente.telefone) || '') },
     items: itens, total, status: 'EM_ANALISE', date: new Date().toISOString(),
     validUntil: new Date(Date.now() + 15 * 86400000).toISOString(),
     seller: { u: 'robo', name: 'Robô (e-mail)' }, commissionPct: 5, origem: 'email', remetente: fromText || '', emailMsgId: msgId || ''
